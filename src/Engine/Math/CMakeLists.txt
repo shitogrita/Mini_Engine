@@ -1,4 +1,4 @@
-add_library(core STATIC
+add_library(Math STATIC
         affine_transformation.cpp
         projection.cpp
 )
