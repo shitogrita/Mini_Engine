@@ -5,15 +5,13 @@
 #include <iostream>
 #include <stdexcept>
 
-Window::Window(int width, int height, const char *title) {
+Window::Window(int width, int height, const char *title)
 	: width_(width),
 	  height_(height)
 	{
-		if (!glfwInit()) {
-			std::cout << "Failed to initialize GLFW" << std::endl;
-			return -1;
-		}
-
+	if (!glfwInit()) {
+		throw std::runtime_error("Failed to initialize GLFW");
+	}
 
 	#ifdef __APPLE__
 		glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
@@ -23,49 +21,68 @@ Window::Window(int width, int height, const char *title) {
 		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
 
-	GLFWwindow* window = glfwCreateWindow(800, 600, "Tets ?", nullptr, nullptr);
-	handle_ = glfwCreateWindow(width_, height_, title, nullptr, nullptr);
+	handle_ = glfwCreateWindow(width_, height_, title, nullptr, nullptr); //указатель на окно GLFM
 	if (!handle_) {
 		glfwTerminate();
 		throw std::runtime_error("Failed to create GLFW window");
 	}
-	glfwMakeContextCurrent(handle_);
+	glfwMakeContextCurrent(handle_); // контекст - это состояние OpenGL
 
-	if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
+	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) { // Загрузка адресов функций OpenGL
 		glfwDestroyWindow(handle_);
 		glfwTerminate();
 		throw std::runtime_error("Failed to initialize GLAD");
 	}
 
+	glViewport(0, 0, width_, height_);
 
-	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) { // Загрузка адресов функций OpenGL
-		std::cout << "Failed to initialize GLAD" << std::endl;
-		glfwDestroyWindow(window);
-		glfwTerminate();
-		return -1;
-	}
+	glfwSetWindowUserPointer(handle_, this);
 
-	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback); // вызов при каждом изменении окна
-	//glViewport(0, 0, 800, 600); // от -1 до
+	glfwSetFramebufferSizeCallback(
+		handle_,
+		[](GLFWwindow* window, int new_width, int new_height) {
+			auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
+			self->width_ = new_width;
+			self->height_ = new_height;
 
-	// render loop
-	while (!glfwWindowShouldClose(window)) {
-		processInput(window);
-		glfwSwapBuffers(window); // замена буфера цвета (пиксель за пикселем (двойной буфер))'
-		glfwPollEvents();
-	}
+			glViewport(0, 0, new_width, new_height);
+		}
+	);
+	glEnable(GL_DEPTH_TEST);
 
-	 return 0;
+	std::cout << "OpenGL version: " << glGetString(GL_VERSION) << std::endl;
 }
 
+Window::~Window() {
+	if (handle_) {
+		glfwDestroyWindow(handle_);
+		handle_ = nullptr;
+	}
+	glfwTerminate();
+}
+
+/*
 void Window::processInput(GLFWwindow *window) {
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
 }
 
-void Window::framebuffer_size_callback(GLFWwindow *window, int width, int height) {
+void Window::framebuffer_size_callback(GLFWwindow *window, int width, int height) { // так как это от с пришло и работает с обычными C-callback
 	// подтяжка окна под изменения
 	glViewport(0, 0, width, height);
+}
+*/
+
+bool Window::ShouldClose() const {
+	return glfwWindowShouldClose(handle_);
+}
+
+void Window::PollEvents() {
+	glfwPollEvents();
+}
+
+void Window::SwapBuffers() {
+	glfwSwapBuffers(handle_);
 }
 
 int Window::GetWidth() const {
@@ -74,4 +91,16 @@ int Window::GetWidth() const {
 
 int Window::GetHeight() const {
 	return height_;
+}
+
+float Window::GetAspectRatio() const{
+	if (height_ == 0) {
+		return 1.0f;
+	}
+
+	return static_cast<float>(width_) / static_cast<float>(height_);
+}
+
+GLFWwindow* Window::GetNativeHandle() {
+	return handle_;
 }
