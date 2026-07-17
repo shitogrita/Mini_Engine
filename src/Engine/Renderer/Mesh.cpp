@@ -7,7 +7,7 @@
 
 Mesh::Mesh(const ImportedMeshData& mesh_data)
 {
-    index_count_ = static_cast<unsigned int>(mesh_data.indices.size());
+    index_count_ = static_cast<unsigned int>(mesh_data.tri_indices.size());
 
     glGenVertexArrays(1, &vao_);
     glGenBuffers(1, &vbo_);
@@ -18,16 +18,16 @@ Mesh::Mesh(const ImportedMeshData& mesh_data)
     glBindBuffer(GL_ARRAY_BUFFER, vbo_);
     glBufferData(
         GL_ARRAY_BUFFER,
-        static_cast<long>(mesh_data.vertices.size() * sizeof(Vertex)),
-        mesh_data.vertices.data(),
+        static_cast<long>(mesh_data.render_vertices.size() * sizeof(Vertex)),
+        mesh_data.render_vertices.data(),
         GL_STATIC_DRAW
     );
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
     glBufferData(
         GL_ELEMENT_ARRAY_BUFFER,
-        static_cast<long>(mesh_data.indices.size() * sizeof(std::uint32_t)),
-        mesh_data.indices.data(),
+        static_cast<long>(mesh_data.tri_indices.size() * sizeof(std::uint32_t)),
+        mesh_data.tri_indices.data(),
         GL_STATIC_DRAW
     );
 
