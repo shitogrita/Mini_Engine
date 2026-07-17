@@ -8,7 +8,7 @@
 
 using Edge = std::pair<std::uint32_t, std::uint32_t>;
 
-struct MeshData {
+struct ImportedMeshData {
 	std::vector<Vec3> positions;
 	std::vector<Vec3> normals;
 	std::vector<Vec2> tex_coords;

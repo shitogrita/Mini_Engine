@@ -1,439 +1,410 @@
-#include "ObjParser.h"
+#include "Engine/Assets/ObjParser.h"
 
 #include <algorithm>
 #include <charconv>
 #include <cctype>
+#include <cstdint>
 #include <fstream>
 #include <string>
-#include <tuple>
-#include <unordered_map>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace {
 
-bool IsSpace(char c) {
-    return std::isspace(static_cast<unsigned char>(c)) != 0;
+bool IsSpace(char symbol)
+{
+    return std::isspace(static_cast<unsigned char>(symbol)) != 0;
 }
 
-void SkipSpaces(const char*& ptr, const char* end) {
-    while (ptr < end && IsSpace(*ptr)) {
-        ++ptr;
+void SkipSpaces(const char*& current, const char* end)
+{
+    while (current < end && IsSpace(*current)) {
+        ++current;
     }
 }
 
-bool ParseFloat(const char*& ptr, const char* end, float& value) {
-    SkipSpaces(ptr, end);
+bool ParseFloat(const char*& current, const char* end, float& value)
+{
+    SkipSpaces(current, end);
 
-    const auto [next, error] = std::from_chars(ptr, end, value);
-
-    if (error != std::errc()) {
+    if (current >= end) {
         return false;
     }
 
-    ptr = next;
-    return true;
-}
+    const auto [next, error] =
+        std::from_chars(current, end, value);
 
-bool ParseInt(const char*& ptr, const char* end, int& value) {
-    const auto [next, error] = std::from_chars(ptr, end, value);
-
-    if (error != std::errc()) {
+    if (error != std::errc{}) {
         return false;
     }
 
-    ptr = next;
+    current = next;
     return true;
 }
 
-struct FaceVertex {
-    int position = -1;
-    int tex_coord = -1;
-    int normal = -1;
-};
+bool ParseInteger(const char*& current, const char* end, int& value)
+{
+    SkipSpaces(current, end);
 
-struct FaceVertexKey {
-    int position = -1;
-    int tex_coord = -1;
-    int normal = -1;
-
-    bool operator==(const FaceVertexKey& other) const {
-        return position == other.position &&
-               tex_coord == other.tex_coord &&
-               normal == other.normal;
-    }
-};
-
-struct FaceVertexKeyHasher {
-    std::size_t operator()(const FaceVertexKey& key) const {
-        std::size_t h1 = std::hash<int>{}(key.position);
-        std::size_t h2 = std::hash<int>{}(key.tex_coord);
-        std::size_t h3 = std::hash<int>{}(key.normal);
-
-        return h1 ^ (h2 << 1) ^ (h3 << 2);
-    }
-};
-
-int ConvertObjIndex(int index, std::size_t size) {
-    if (index < 0) {
-        return static_cast<int>(size) + index;
-    }
-
-    return index - 1;
-}
-
-bool IsValidIndex(int index, std::size_t size) {
-    return index >= 0 && index < static_cast<int>(size);
-}
-
-bool ParseFaceVertexToken(const char* begin,
-                          const char* end,
-                          FaceVertex& out) {
-    const char* ptr = begin;
-
-    int position = 0;
-    if (!ParseInt(ptr, end, position)) {
+    if (current >= end) {
         return false;
     }
 
-    out.position = position;
+    const auto [next, error] =
+        std::from_chars(current, end, value);
 
-    if (ptr >= end || *ptr != '/') {
-        return true;
+    if (error != std::errc{}) {
+        return false;
     }
 
-    ++ptr;
-
-    if (ptr < end && *ptr != '/') {
-        int tex_coord = 0;
-
-        if (!ParseInt(ptr, end, tex_coord)) {
-            return false;
-        }
-
-        out.tex_coord = tex_coord;
-    }
-
-    if (ptr >= end || *ptr != '/') {
-        return true;
-    }
-
-    ++ptr;
-
-    if (ptr < end) {
-        int normal = 0;
-
-        if (!ParseInt(ptr, end, normal)) {
-            return false;
-        }
-
-        out.normal = normal;
-    }
-
+    current = next;
     return true;
 }
 
-bool ParseVertexLine(const std::string& line, MeshData& mesh_data) {
-    const char* ptr = line.data() + 1;
+bool ParsePositionLine(std::string_view line, Vec3& position)
+{
+    if (line.size() < 2 ||
+        line[0] != 'v' ||
+        !IsSpace(line[1])) {
+        return false;
+    }
+
+    const char* current = line.data() + 1;
     const char* end = line.data() + line.size();
 
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;
 
-    if (!ParseFloat(ptr, end, x)) {
+    if (!ParseFloat(current, end, x)) {
         return false;
     }
 
-    if (!ParseFloat(ptr, end, y)) {
+    if (!ParseFloat(current, end, y)) {
         return false;
     }
 
-    if (!ParseFloat(ptr, end, z)) {
+    if (!ParseFloat(current, end, z)) {
         return false;
     }
 
-    mesh_data.positions.push_back(Vec3{x, y, z});
-
-    float r = 1.0f;
-    float g = 1.0f;
-    float b = 1.0f;
-
-    const char* color_ptr = ptr;
-
-    if (ParseFloat(color_ptr, end, r) &&
-        ParseFloat(color_ptr, end, g) &&
-        ParseFloat(color_ptr, end, b)) {
-        mesh_data.colors.push_back(Color3{r, g, b});
-        mesh_data.has_colors = true;
-    } else {
-        mesh_data.colors.push_back(Color3{1.0f, 1.0f, 1.0f});
-    }
-
+    position = Vec3{x, y, z};
     return true;
 }
 
-bool ParseTexCoordLine(const std::string& line, MeshData& mesh_data) {
-    const char* ptr = line.data() + 2;
+bool ParseTexCoordLine(std::string_view line, Vec2& tex_coord)
+{
+    if (line.size() < 3 ||
+        line[0] != 'v' ||
+        line[1] != 't' ||
+        !IsSpace(line[2])) {
+        return false;
+    }
+
+    const char* current = line.data() + 2;
     const char* end = line.data() + line.size();
 
     float u = 0.0f;
     float v = 0.0f;
 
-    if (!ParseFloat(ptr, end, u)) {
+    if (!ParseFloat(current, end, u)) {
         return false;
     }
 
-    if (!ParseFloat(ptr, end, v)) {
+    if (!ParseFloat(current, end, v)) {
         return false;
     }
 
-    mesh_data.tex_coords.push_back(Vec2{u, v});
-    mesh_data.has_tex_coords = true;
-
+    tex_coord = Vec2{u, v};
     return true;
 }
 
-bool ParseNormalLine(const std::string& line, MeshData& mesh_data) {
-    const char* ptr = line.data() + 2;
+bool ParseNormalLine(std::string_view line, Vec3& normal)
+{
+    if (line.size() < 3 ||
+        line[0] != 'v' ||
+        line[1] != 'n' ||
+        !IsSpace(line[2])) {
+        return false;
+    }
+
+    const char* current = line.data() + 2;
     const char* end = line.data() + line.size();
 
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;
 
-    if (!ParseFloat(ptr, end, x)) {
+    if (!ParseFloat(current, end, x)) {
         return false;
     }
 
-    if (!ParseFloat(ptr, end, y)) {
+    if (!ParseFloat(current, end, y)) {
         return false;
     }
 
-    if (!ParseFloat(ptr, end, z)) {
+    if (!ParseFloat(current, end, z)) {
         return false;
     }
 
-    mesh_data.normals.push_back(Vec3{x, y, z});
-    mesh_data.has_normals = true;
-
+    normal = Vec3{x, y, z};
     return true;
 }
 
-std::uint32_t GetOrCreateRenderVertex(
-    const FaceVertex& face_vertex,
-    MeshData& mesh_data,
-    std::unordered_map<FaceVertexKey, std::uint32_t, FaceVertexKeyHasher>& vertex_map
-) {
-    FaceVertexKey key{
-        face_vertex.position,
-        face_vertex.tex_coord,
-        face_vertex.normal
-    };
+bool ConvertObjIndex(
+    int obj_index,
+    std::size_t positions_count,
+    std::uint32_t& result)
+{
+    int index = 0;
 
-    auto found = vertex_map.find(key);
-
-    if (found != vertex_map.end()) {
-        return found->second;
+    if (obj_index > 0) {
+        index = obj_index - 1;
+    } else if (obj_index < 0) {
+        index =
+            static_cast<int>(positions_count) + obj_index;
+    } else {
+        return false;
     }
 
-    Vertex vertex{};
-
-    vertex.position = mesh_data.positions[face_vertex.position];
-
-    if (face_vertex.normal >= 0) {
-        vertex.normal = mesh_data.normals[face_vertex.normal];
+    if (index < 0 ||
+        index >= static_cast<int>(positions_count)) {
+        return false;
     }
 
-    if (face_vertex.tex_coord >= 0) {
-        vertex.tex_coord = mesh_data.tex_coords[face_vertex.tex_coord];
+    result = static_cast<std::uint32_t>(index);
+    return true;
+}
+
+bool ParseFaceVertexPositionIndex(
+    const char*& current,
+    const char* end,
+    std::size_t positions_count,
+    std::uint32_t& result)
+{
+    int obj_index = 0;
+
+    if (!ParseInteger(current, end, obj_index)) {
+        return false;
     }
 
-    if (face_vertex.position >= 0 &&
-        face_vertex.position < static_cast<int>(mesh_data.colors.size())) {
-        vertex.color = mesh_data.colors[face_vertex.position];
+    if (!ConvertObjIndex(
+            obj_index,
+            positions_count,
+            result)) {
+        return false;
     }
 
-    const auto new_index = static_cast<std::uint32_t>(mesh_data.render_vertices.size());
+    /*
+     * После индекса позиции может идти:
+     *
+     * 1
+     * 1/2
+     * 1//3
+     * 1/2/3
+     *
+     * На данном этапе индексы UV и нормалей
+     * пропускаются. Мы сохраняем только индекс позиции.
+     */
+    while (current < end && !IsSpace(*current)) {
+        ++current;
+    }
 
-    mesh_data.render_vertices.push_back(vertex);
-    vertex_map.emplace(key, new_index);
-
-    return new_index;
+    return true;
 }
 
 bool ParseFaceLine(
-    const std::string& line,
-    MeshData& mesh_data,
-    std::unordered_map<FaceVertexKey, std::uint32_t, FaceVertexKeyHasher>& vertex_map
-) {
-    const char* ptr = line.data() + 1;
-    const char* end = line.data() + line.size();
-
-    std::vector<FaceVertex> face_vertices;
-    face_vertices.reserve(8);
-
-    while (ptr < end) {
-        SkipSpaces(ptr, end);
-
-        if (ptr >= end || *ptr == '#') {
-            break;
-        }
-
-        const char* token_begin = ptr;
-
-        while (ptr < end && !IsSpace(*ptr)) {
-            ++ptr;
-        }
-
-        const char* token_end = ptr;
-
-        FaceVertex face_vertex{};
-
-        if (!ParseFaceVertexToken(token_begin, token_end, face_vertex)) {
-            return false;
-        }
-
-        face_vertex.position =
-            ConvertObjIndex(face_vertex.position, mesh_data.positions.size());
-
-        if (!IsValidIndex(face_vertex.position, mesh_data.positions.size())) {
-            return false;
-        }
-
-        if (face_vertex.tex_coord != -1) {
-            face_vertex.tex_coord =
-                ConvertObjIndex(face_vertex.tex_coord, mesh_data.tex_coords.size());
-
-            if (!IsValidIndex(face_vertex.tex_coord, mesh_data.tex_coords.size())) {
-                return false;
-            }
-        }
-
-        if (face_vertex.normal != -1) {
-            face_vertex.normal =
-                ConvertObjIndex(face_vertex.normal, mesh_data.normals.size());
-
-            if (!IsValidIndex(face_vertex.normal, mesh_data.normals.size())) {
-                return false;
-            }
-        }
-
-        face_vertices.push_back(face_vertex);
-    }
-
-    if (face_vertices.size() < 3) {
+    std::string_view line,
+    std::size_t positions_count,
+    std::vector<Edge>& edges,
+    std::vector<std::uint32_t>& tri_indices)
+{
+    if (line.size() < 2 ||
+        line[0] != 'f' ||
+        !IsSpace(line[1])) {
         return false;
     }
 
-    for (std::size_t i = 0; i < face_vertices.size(); ++i) {
-        std::size_t j = (i + 1) % face_vertices.size();
+    const char* current = line.data() + 1;
+    const char* end = line.data() + line.size();
 
-        auto v1 = static_cast<std::uint32_t>(face_vertices[i].position);
-        auto v2 = static_cast<std::uint32_t>(face_vertices[j].position);
+    std::vector<std::uint32_t> face_indices;
 
-        if (v1 == v2) {
+    while (current < end) {
+        SkipSpaces(current, end);
+
+        if (current >= end || *current == '#') {
+            break;
+        }
+
+        std::uint32_t position_index = 0;
+
+        if (!ParseFaceVertexPositionIndex(
+                current,
+                end,
+                positions_count,
+                position_index)) {
+            return false;
+        }
+
+        face_indices.push_back(position_index);
+    }
+
+    if (face_indices.size() < 3) {
+        return false;
+    }
+
+    for (std::size_t i = 0;
+         i < face_indices.size();
+         ++i) {
+        const std::size_t next =
+            (i + 1) % face_indices.size();
+
+        std::uint32_t first = face_indices[i];
+        std::uint32_t second = face_indices[next];
+
+        if (first == second) {
             continue;
         }
 
-        if (v1 > v2) {
-            std::swap(v1, v2);
+        if (first > second) {
+            std::swap(first, second);
         }
 
-        mesh_data.edges.emplace_back(v1, v2);
+        edges.emplace_back(first, second);
     }
 
-    const auto position_v0 = static_cast<std::uint32_t>(face_vertices[0].position);
+    /*
+     * Триангуляция веером.
+     *
+     * Для грани:
+     *
+     * f 1 2 3 4
+     *
+     * создаются треугольники:
+     *
+     * 1 2 3
+     * 1 3 4
+     */
+    const std::uint32_t first =
+        face_indices.front();
 
-    for (std::size_t i = 1; i + 1 < face_vertices.size(); ++i) {
-        mesh_data.tri_indices.push_back(position_v0);
-        mesh_data.tri_indices.push_back(static_cast<std::uint32_t>(face_vertices[i].position));
-        mesh_data.tri_indices.push_back(static_cast<std::uint32_t>(face_vertices[i + 1].position));
-
-        const std::uint32_t rv0 =
-            GetOrCreateRenderVertex(face_vertices[0], mesh_data, vertex_map);
-        const std::uint32_t rv1 =
-            GetOrCreateRenderVertex(face_vertices[i], mesh_data, vertex_map);
-        const std::uint32_t rv2 =
-            GetOrCreateRenderVertex(face_vertices[i + 1], mesh_data, vertex_map);
-
-        mesh_data.render_indices.push_back(rv0);
-        mesh_data.render_indices.push_back(rv1);
-        mesh_data.render_indices.push_back(rv2);
+    for (std::size_t i = 1;
+         i + 1 < face_indices.size();
+         ++i) {
+        tri_indices.push_back(first);
+        tri_indices.push_back(face_indices[i]);
+        tri_indices.push_back(face_indices[i + 1]);
+        // Метод веера корректен для выпуклых полигонов.
+        // Для сложного вогнутого полигона он может создать неправильные треугольники
     }
 
     return true;
 }
-
 } // namespace
 
-bool ObjParser::Parse(const std::string& filename, MeshData& mesh_data) {
-    std::ifstream file(filename, std::ios::binary);
+bool ObjParser::Parse(
+    const std::string &filename,
+    ImportedMeshData &mesh_data) {
+    std::ifstream file(filename);
 
     if (!file.is_open()) {
         return false;
     }
 
-    mesh_data = MeshData{};
+    mesh_data.positions.clear();
+    mesh_data.normals.clear();
+    mesh_data.tex_coords.clear();
+    mesh_data.colors.clear();
 
-    file.seekg(0, std::ios::end);
-    const std::streampos file_size = file.tellg();
-    file.seekg(0, std::ios::beg);
+    mesh_data.edges.clear();
+    mesh_data.tri_indices.clear();
 
-    if (file_size > 0) {
-        const auto size = static_cast<std::size_t>(file_size);
+    mesh_data.render_vertices.clear();
+    mesh_data.render_indices.clear();
 
-        mesh_data.positions.reserve(size / 32);
-        mesh_data.normals.reserve(size / 48);
-        mesh_data.tex_coords.reserve(size / 48);
-        mesh_data.colors.reserve(size / 32);
-        mesh_data.edges.reserve(size / 24);
-        mesh_data.tri_indices.reserve(size / 16);
-        mesh_data.render_vertices.reserve(size / 32);
-        mesh_data.render_indices.reserve(size / 16);
-    }
+    mesh_data.has_normals = false;
+    mesh_data.has_tex_coords = false;
+    mesh_data.has_colors = false;
 
-    std::unordered_map<FaceVertexKey, std::uint32_t, FaceVertexKeyHasher> vertex_map;
     std::string line;
 
     while (std::getline(file, line)) {
-        if (line.empty() || line[0] == '#') {
+        const char* current = line.data();
+        const char* end = line.data() + line.size();
+
+        SkipSpaces(current, end);
+
+        if (current >= end || *current == '#') {
             continue;
         }
 
-        if (line[0] == 'v' && line.size() > 1 && IsSpace(line[1])) {
-            ParseVertexLine(line, mesh_data);
+        const std::string_view trimmed_line(
+            current,
+            static_cast<std::size_t>(end - current)
+        );
+
+        if (trimmed_line.starts_with("vt")) {
+            Vec2 tex_coord{};
+
+            if (ParseTexCoordLine(
+                    trimmed_line,
+                    tex_coord)) {
+                mesh_data.tex_coords.push_back(tex_coord);
+                mesh_data.has_tex_coords = true;
+            }
+
             continue;
         }
 
-        if (line[0] == 'v' &&
-            line.size() > 2 &&
-            line[1] == 't' &&
-            IsSpace(line[2])) {
-            ParseTexCoordLine(line, mesh_data);
+        if (trimmed_line.starts_with("vn")) {
+            Vec3 normal{};
+
+            if (ParseNormalLine(
+                    trimmed_line,
+                    normal)) {
+                mesh_data.normals.push_back(normal);
+                mesh_data.has_normals = true;
+            }
+
             continue;
         }
 
-        if (line[0] == 'v' &&
-            line.size() > 2 &&
-            line[1] == 'n' &&
-            IsSpace(line[2])) {
-            ParseNormalLine(line, mesh_data);
+        if (trimmed_line.starts_with("v")) {
+            Vec3 position{};
+
+            if (ParsePositionLine(
+                    trimmed_line,
+                    position)) {
+                mesh_data.positions.push_back(position);
+            }
+
             continue;
         }
 
-        if (line[0] == 'f' && line.size() > 1 && IsSpace(line[1])) {
-            ParseFaceLine(line, mesh_data, vertex_map);
-            continue;
+        if (trimmed_line.starts_with("f")) {
+            ParseFaceLine(
+                trimmed_line,
+                mesh_data.positions.size(),
+                mesh_data.edges,
+                mesh_data.tri_indices
+            );
         }
     }
 
-    std::sort(mesh_data.edges.begin(), mesh_data.edges.end());
-    mesh_data.edges.erase(
-        std::unique(mesh_data.edges.begin(), mesh_data.edges.end()),
+    std::sort(
+        mesh_data.edges.begin(),
         mesh_data.edges.end()
     );
 
-    return !mesh_data.positions.empty() &&
-           !mesh_data.render_vertices.empty() &&
-           !mesh_data.render_indices.empty();
+    mesh_data.edges.erase(
+        std::unique(
+            mesh_data.edges.begin(),
+            mesh_data.edges.end()
+        ),
+        mesh_data.edges.end()
+    );
+
+    return !mesh_data.positions.empty();
 }
