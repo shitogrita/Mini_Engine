@@ -7,7 +7,7 @@ uniform float uPointSize; // размер вершин
 
 void main() {
   gl_Position = uMVP * vec4(aPos, 1.0);
-  vEdgeT = aEdgeT; //VBO
+  // vEdgeT = aEdgeT; //VBO
   gl_PointSize = uPointSize;
 }
 
