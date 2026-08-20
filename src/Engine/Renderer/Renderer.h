@@ -1,18 +1,17 @@
 #pragma once
 
-#include <QOpenGLFunctions_3_3_Core>
-#include <QOpenGLWidget>
-#include <QSet>
-#include <QTimer>
 
+#include "../Math/matrix_types.h"
+#include "Mesh.h"
+#include "Shader.h"
 
-class GlWidget:  public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core {
-	Q_OBJECT
+class Renderer {
+  public:
+	void BeginFrame(const RenderParams& params);
+	void Draw(
+	const Mesh& mesh,
+	const Shader& shader,
+	const Matrix4& mvp);
 
-	  public:
-		explicit GlWidget(QWidget parent = nullptr);
-		~GlWidget();
-
-	  private:
-
+  private:
 };

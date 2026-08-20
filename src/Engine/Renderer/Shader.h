@@ -1,11 +1,13 @@
-#include "../Shaders/basic.frag"
-#include "../Shaders/basic.vert"
+#pragma once
+
+#include <filesystem>
+#include <string>
 
 class Shader {
-public:
+  public:
 	Shader(
-	const std::filesystem::path& vertex_path,
-	const std::filesystem::path& fragment_path
+		const std::filesystem::path& vertex_path,
+		const std::filesystem::path& fragment_path
 	);
 
 	~Shader();
@@ -14,17 +16,27 @@ public:
 	Shader(const Shader&) = delete;
 	Shader& operator=(const Shader&) = delete;
 
+	Shader(Shader&& other) noexcept;
+	Shader& operator=(Shader&& other) noexcept;
+
 	// Активировать shader program
 	void Use() const;
 
-	// Передать uniform
-	void SetVec4(/* имя uniform */, /* значение */);
-	void SetFloat(/* имя uniform */, float value);
-	void SetInt(/* имя uniform */, int value);
-	void SetVec3(/* имя uniform */, /* значение */);
-	void SetMat4(/* имя uniform */, /* матрица */);;
+	void SetFloat(const std::string& name, float value) const;
+	void SetInt(const std::string& name, int value) const;
 
-private:
+	// Передать uniform (скоро после проверки своего matrix)
+	void SetVec4(const std::string& name, const Vec4& value) const;
+	void SetMat4(
+		const std::string& name,
+		const Matrix4& value
+	) const;
+	void SetFloat(const std::string& name, float value) const;
+	void SetInt(const std::string& name, int value) const
+	// void SetVec3(/* имя uniform */, /* значение */);
+
+
+  private:
 	// OpenGL ID слинкованной shader program
 	unsigned int program_id_ = 0;
 };
