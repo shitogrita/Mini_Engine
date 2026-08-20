@@ -9,6 +9,8 @@
 #include <QFileInfo>
 #include <QLabel>
 #include <QOpenGLContext>
+#include <QKeyEvent>
+#include <QTimer>
 
 #include <algorithm>
 #include <filesystem>
@@ -42,13 +44,25 @@ void* GetQtOpenGLProcAddress(
 
 } // namespace
 
-
-SceneViewport::SceneViewport(
-    QWidget* parent
-)
+SceneViewport::SceneViewport(QWidget* parent)
     : QOpenGLWidget(parent)
 {
+    setFocusPolicy(Qt::StrongFocus);
+
     CreateLayout();
+
+    connect(
+        &input_timer_,
+        &QTimer::timeout,
+        this,
+        [this]()
+        {
+            TickInput();
+            update();
+        }
+    );
+
+    input_timer_.start(16);
 }
 
 
@@ -237,20 +251,8 @@ void SceneViewport::paintGL()
                 model_scale_
             );
 
-
-    /*
-     * Пока Camera-класса нет.
-     * Используем простейший view:
-     * сдвигаем сцену от камеры по оси -Z.
-     */
     const Matrix4 view =
-        AffineTransformation::
-            Translation4(
-                0.0f,
-                0.0f,
-                -3.0f
-            );
-
+    camera_.GetViewMatrix();
 
     const float aspect =
         height() > 0
@@ -401,6 +403,110 @@ void SceneViewport::SetDisplayedFile(
     update();
 }
 
+
+void SceneViewport::keyPressEvent(QKeyEvent* event)
+{
+    if (event->isAutoRepeat()) {
+        return;
+    }
+
+    switch (event->key()) {
+        case Qt::Key_W:
+            move_forward_ = true;
+            break;
+
+        case Qt::Key_S:
+            move_backward_ = true;
+            break;
+
+        case Qt::Key_A:
+            move_left_ = true;
+            break;
+
+        case Qt::Key_D:
+            move_right_ = true;
+            break;
+
+        case Qt::Key_E:
+            move_up_ = true;
+            break;
+
+        case Qt::Key_Q:
+            move_down_ = true;
+            break;
+
+        default:
+            QOpenGLWidget::keyPressEvent(event);
+            break;
+    }
+}
+
+
+void SceneViewport::keyReleaseEvent(QKeyEvent* event)
+{
+    if (event->isAutoRepeat()) {
+        return;
+    }
+
+    switch (event->key()) {
+        case Qt::Key_W:
+            move_forward_ = false;
+            break;
+
+        case Qt::Key_S:
+            move_backward_ = false;
+            break;
+
+        case Qt::Key_A:
+            move_left_ = false;
+            break;
+
+        case Qt::Key_D:
+            move_right_ = false;
+            break;
+
+        case Qt::Key_E:
+            move_up_ = false;
+            break;
+
+        case Qt::Key_Q:
+            move_down_ = false;
+            break;
+
+        default:
+            QOpenGLWidget::keyReleaseEvent(event);
+            break;
+    }
+}
+
+void SceneViewport::TickInput()
+{
+    constexpr float move_speed = 0.05f;
+
+    if (move_forward_) {
+        camera_.MoveForward(move_speed);
+    }
+
+    if (move_backward_) {
+        camera_.MoveBackward(move_speed);
+    }
+
+    if (move_left_) {
+        camera_.MoveLeft(move_speed);
+    }
+
+    if (move_right_) {
+        camera_.MoveRight(move_speed);
+    }
+
+    if (move_up_) {
+        camera_.MoveUp(move_speed);
+    }
+
+    if (move_down_) {
+        camera_.MoveDown(move_speed);
+    }
+}
 
 void SceneViewport::UploadPendingMesh()
 {

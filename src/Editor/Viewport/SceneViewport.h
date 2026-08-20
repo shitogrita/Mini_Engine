@@ -5,8 +5,10 @@
 #include "Engine/Renderer/Mesh.h"
 #include "Engine/Renderer/Renderer.h"
 #include "Engine/Renderer/Shader.h"
+#include "Engine/Scene/Camera.h"
 
 #include <QOpenGLWidget>
+#include <QTimer>
 #include <QString>
 
 #include <memory>
@@ -14,6 +16,7 @@
 
 
 class QLabel;
+class QKeyEvent;
 
 
 class SceneViewport final : public QOpenGLWidget {
@@ -37,6 +40,8 @@ private:
 		const ImportedMeshData& mesh_data
 	);
 
+	void TickInput();
+
 protected:
 	void initializeGL() override;
 
@@ -47,11 +52,21 @@ protected:
 
 	void paintGL() override;
 
+	void keyPressEvent(
+		QKeyEvent* event
+	) override;
+
+	void keyReleaseEvent(
+		QKeyEvent* event
+	) override;
+
 private:
 	QLabel* title_label_ = nullptr;
 	QLabel* content_label_ = nullptr;
 
 	Renderer renderer_;
+
+	Camera camera_;
 
 	std::unique_ptr<Shader> shader_;
 	std::unique_ptr<Mesh> mesh_;
@@ -75,6 +90,15 @@ private:
 		1.0f,
 		1.0f
 	};
+
+	bool move_forward_ = false;
+	bool move_backward_ = false;
+	bool move_left_ = false;
+	bool move_right_ = false;
+	bool move_up_ = false;
+	bool move_down_ = false;
+
+	QTimer input_timer_;
 
 	bool gl_initialized_ = false;
 };
