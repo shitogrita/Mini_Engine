@@ -32,8 +32,7 @@ bool ParseFloat(const char*& current, const char* end, float& value)
         return false;
     }
 
-    const auto [next, error] =
-        std::from_chars(current, end, value);
+    const auto [next, error] = std::from_chars(current, end, value);
 
     if (error != std::errc{}) {
         return false;
@@ -51,8 +50,7 @@ bool ParseInteger(const char*& current, const char* end, int& value)
         return false;
     }
 
-    const auto [next, error] =
-        std::from_chars(current, end, value);
+    const auto [next, error] = std::from_chars(current, end, value);
 
     if (error != std::errc{}) {
         return false;
@@ -159,12 +157,14 @@ bool ConvertObjIndex(
 {
     int index = 0;
 
+    // OBJ использует индексацию начиная с 1.
     if (obj_index > 0) {
         index = obj_index - 1;
     } else if (obj_index < 0) {
-        index =
-            static_cast<int>(positions_count) + obj_index;
+        // Отрицательный индекс считается от конца уже прочитанных positions.
+        index = static_cast<int>(positions_count) + obj_index;
     } else {
+        // Индекс 0 в OBJ недопустим.
         return false;
     }
 
@@ -255,11 +255,8 @@ bool ParseFaceLine(
         return false;
     }
 
-    for (std::size_t i = 0;
-         i < face_indices.size();
-         ++i) {
-        const std::size_t next =
-            (i + 1) % face_indices.size();
+    for (std::size_t i = 0; i < face_indices.size(); ++i) {
+        const std::size_t next = (i + 1) % face_indices.size();
 
         std::uint32_t first = face_indices[i];
         std::uint32_t second = face_indices[next];
@@ -268,6 +265,7 @@ bool ParseFaceLine(
             continue;
         }
 
+        // Храним Edge в одинаковом порядке, чтобы удалить дубликаты.
         if (first > second) {
             std::swap(first, second);
         }
@@ -278,35 +276,33 @@ bool ParseFaceLine(
     /*
      * Триангуляция веером.
      *
-     * Для грани:
-     *
      * f 1 2 3 4
      *
-     * создаются треугольники:
+     * превращается в:
      *
      * 1 2 3
      * 1 3 4
      */
-    const std::uint32_t first =
-        face_indices.front();
+    const std::uint32_t first = face_indices.front();
 
-    for (std::size_t i = 1;
-         i + 1 < face_indices.size();
-         ++i) {
+    for (std::size_t i = 1; i + 1 < face_indices.size(); ++i) {
         tri_indices.push_back(first);
         tri_indices.push_back(face_indices[i]);
         tri_indices.push_back(face_indices[i + 1]);
+
         // Метод веера корректен для выпуклых полигонов.
-        // Для сложного вогнутого полигона он может создать неправильные треугольники
+        // Для сложного вогнутого полигона он может дать неверную триангуляцию.
     }
 
     return true;
 }
+
 } // namespace
 
 bool ObjParser::Parse(
-    const std::string &filename,
-    ImportedMeshData &mesh_data) {
+    const std::string& filename,
+    ImportedMeshData& mesh_data)
+{
     std::ifstream file(filename);
 
     if (!file.is_open()) {
@@ -348,9 +344,7 @@ bool ObjParser::Parse(
         if (trimmed_line.starts_with("vt")) {
             Vec2 tex_coord{};
 
-            if (ParseTexCoordLine(
-                    trimmed_line,
-                    tex_coord)) {
+            if (ParseTexCoordLine(trimmed_line, tex_coord)) {
                 mesh_data.tex_coords.push_back(tex_coord);
                 mesh_data.has_tex_coords = true;
             }
@@ -361,9 +355,7 @@ bool ObjParser::Parse(
         if (trimmed_line.starts_with("vn")) {
             Vec3 normal{};
 
-            if (ParseNormalLine(
-                    trimmed_line,
-                    normal)) {
+            if (ParseNormalLine(trimmed_line, normal)) {
                 mesh_data.normals.push_back(normal);
                 mesh_data.has_normals = true;
             }
@@ -374,9 +366,7 @@ bool ObjParser::Parse(
         if (trimmed_line.starts_with("v")) {
             Vec3 position{};
 
-            if (ParsePositionLine(
-                    trimmed_line,
-                    position)) {
+            if (ParsePositionLine(trimmed_line, position)) {
                 mesh_data.positions.push_back(position);
             }
 
@@ -406,5 +396,29 @@ bool ObjParser::Parse(
         mesh_data.edges.end()
     );
 
-    return !mesh_data.positions.empty();
+    /*
+     * Формируем GPU-представление.
+     *
+     * Пока Renderer использует только position.
+     * Нормали и texture coordinates подключим позже,
+     * когда parser начнёт учитывать индексы v/vt/vn.
+     */
+    mesh_data.render_vertices.reserve(
+        mesh_data.positions.size()
+    );
+
+    for (const Vec3& position : mesh_data.positions) {
+        Vertex vertex{};
+        vertex.position = position;
+
+        mesh_data.render_vertices.push_back(vertex);
+    }
+
+    // Сейчас render vertex соответствует position один к одному,
+    // поэтому индексы можно скопировать напрямую.
+    mesh_data.render_indices = mesh_data.tri_indices;
+
+    return
+        !mesh_data.render_vertices.empty() &&
+        !mesh_data.render_indices.empty();
 }

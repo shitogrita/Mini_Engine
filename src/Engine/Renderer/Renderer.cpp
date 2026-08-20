@@ -26,6 +26,16 @@ void Renderer::Draw(
 ) {
 	shader.Use();
 	shader.SetMat4("uMVP", mvp);
-	mesh.Draw();
+
+	mesh.Bind();
+
+	glDrawElements(
+		GL_TRIANGLES,
+		static_cast<GLsizei>(mesh.GetIndexCount()),
+		GL_UNSIGNED_INT,
+		nullptr
+	);
+
+	glBindVertexArray(0);
 
 }

@@ -6,9 +6,12 @@
 #include <cstdint>
 #include <utility>
 
+
 Mesh::Mesh(const ImportedMeshData& mesh_data)
 {
-    index_count_ = static_cast<unsigned int>(mesh_data.indices.size());
+    index_count_ = static_cast<unsigned int>(
+        mesh_data.render_indices.size()
+    );
 
     // Создаём OpenGL-объекты.
     glGenVertexArrays(1, &vao_);
@@ -22,8 +25,10 @@ Mesh::Mesh(const ImportedMeshData& mesh_data)
     glBindBuffer(GL_ARRAY_BUFFER, vbo_);
     glBufferData(
         GL_ARRAY_BUFFER,
-        static_cast<long>(mesh_data.vertices.size() * sizeof(Vertex)),
-        mesh_data.vertices.data(),
+        static_cast<GLsizeiptr>(
+            mesh_data.render_vertices.size() * sizeof(Vertex)
+        ),
+        mesh_data.render_vertices.data(),
         GL_STATIC_DRAW
     );
 
@@ -31,46 +36,76 @@ Mesh::Mesh(const ImportedMeshData& mesh_data)
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
     glBufferData(
         GL_ELEMENT_ARRAY_BUFFER,
-        static_cast<long>(mesh_data.indices.size() * sizeof(std::uint32_t)),
-        mesh_data.indices.data(),
+        static_cast<GLsizeiptr>(
+            mesh_data.render_indices.size() * sizeof(std::uint32_t)
+        ),
+        mesh_data.render_indices.data(),
         GL_STATIC_DRAW
     );
 
     // layout(location = 0) in vec3 aPos;
     glVertexAttribPointer(
-       0,                                      // location = 0
-       3,                                      // x, y, z
-       GL_FLOAT,                               // float
-       GL_FALSE,                               // не нормализовать
-       sizeof(Vertex),                         // размер одной Vertex
-       reinterpret_cast<void*>(
-           offsetof(Vertex, position)
-       )                                       // где position внутри Vertex
+        0,                                      // location = 0
+        3,                                      // x, y, z
+        GL_FLOAT,                               // float
+        GL_FALSE,                               // не нормализовать
+        sizeof(Vertex),                         // размер одной Vertex
+        reinterpret_cast<void*>(
+            offsetof(Vertex, position)
+        )                                       // где position внутри Vertex
     );
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, position)));
     glEnableVertexAttribArray(0);
 
-    // отвязываем VAO
-    glBindVertexArray(0);
-
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, normal)));
+    // layout(location = 1) in vec3 aNormal;
+    glVertexAttribPointer(
+        1,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(Vertex),
+        reinterpret_cast<void*>(
+            offsetof(Vertex, normal)
+        )
+    );
     glEnableVertexAttribArray(1);
 
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, tex_coord)));
+    // layout(location = 2) in vec2 aTexCoord;
+    glVertexAttribPointer(
+        2,
+        2,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(Vertex),
+        reinterpret_cast<void*>(
+            offsetof(Vertex, tex_coord)
+        )
+    );
     glEnableVertexAttribArray(2);
 
-    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, color)));
+    // layout(location = 3) in vec3 aColor;
+    glVertexAttribPointer(
+        3,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(Vertex),
+        reinterpret_cast<void*>(
+            offsetof(Vertex, color)
+        )
+    );
     glEnableVertexAttribArray(3);
 
-    // отвязываем VAO
+    // Отвязываем VAO только после того,
+    // как полностью закончили его конфигурацию.
     glBindVertexArray(0);
 }
+
 
 Mesh::~Mesh()
 {
     Destroy();
 }
+
 
 Mesh::Mesh(Mesh&& other) noexcept
 {
@@ -79,6 +114,7 @@ Mesh::Mesh(Mesh&& other) noexcept
     ebo_ = std::exchange(other.ebo_, 0);
     index_count_ = std::exchange(other.index_count_, 0);
 }
+
 
 Mesh& Mesh::operator=(Mesh&& other) noexcept
 {
@@ -90,7 +126,7 @@ Mesh& Mesh::operator=(Mesh&& other) noexcept
     // которыми владел текущий Mesh.
     Destroy();
 
-    // забираем ресурсы other.
+    // Забираем ресурсы other.
     vao_ = std::exchange(other.vao_, 0);
     vbo_ = std::exchange(other.vbo_, 0);
     ebo_ = std::exchange(other.ebo_, 0);
@@ -101,15 +137,18 @@ Mesh& Mesh::operator=(Mesh&& other) noexcept
     return *this;
 }
 
+
 void Mesh::Bind() const
 {
     glBindVertexArray(vao_);
 }
 
+
 unsigned int Mesh::GetIndexCount() const
 {
     return index_count_;
 }
+
 
 void Mesh::Destroy()
 {
