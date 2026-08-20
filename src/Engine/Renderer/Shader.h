@@ -1,10 +1,13 @@
 #pragma once
 
+#include "Engine/Math/matrix_types.h"
+
 #include <filesystem>
 #include <string>
 
+
 class Shader {
-  public:
+public:
 	Shader(
 		const std::filesystem::path& vertex_path,
 		const std::filesystem::path& fragment_path
@@ -12,31 +15,40 @@ class Shader {
 
 	~Shader();
 
-	// Нельзя копировать OpenGL
+	// OpenGL program нельзя копировать:
+	// два Shader не должны владеть одним program_id_.
 	Shader(const Shader&) = delete;
 	Shader& operator=(const Shader&) = delete;
 
+	// Владение OpenGL program можно передавать.
 	Shader(Shader&& other) noexcept;
 	Shader& operator=(Shader&& other) noexcept;
 
-	// Активировать shader program
+	// Активировать shader program.
 	void Use() const;
 
-	void SetFloat(const std::string& name, float value) const;
-	void SetInt(const std::string& name, int value) const;
+	// Передача uniform-переменных.
+	void SetInt(
+		const std::string& name,
+		int value
+	) const;
 
-	// Передать uniform (скоро после проверки своего matrix)
-	void SetVec4(const std::string& name, const Vec4& value) const;
+	void SetFloat(
+		const std::string& name,
+		float value
+	) const;
+
+	void SetVec4(
+		const std::string& name,
+		const Vec4& value
+	) const;
+
 	void SetMat4(
 		const std::string& name,
 		const Matrix4& value
 	) const;
-	void SetFloat(const std::string& name, float value) const;
-	void SetInt(const std::string& name, int value) const
-	// void SetVec3(/* имя uniform */, /* значение */);
 
-
-  private:
-	// OpenGL ID слинкованной shader program
+private:
+	// OpenGL ID слинкованной shader program.
 	unsigned int program_id_ = 0;
 };

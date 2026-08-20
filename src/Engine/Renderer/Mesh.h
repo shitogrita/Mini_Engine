@@ -19,7 +19,6 @@ public:
 	unsigned int GetIndexCount() const;
 
 private:
-	void Destroy();
 
 	unsigned int vao_ = 0;
 	unsigned int vbo_ = 0;

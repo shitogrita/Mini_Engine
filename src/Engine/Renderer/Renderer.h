@@ -1,17 +1,26 @@
 #pragma once
 
-
 #include "../Math/matrix_types.h"
-#include "Mesh.h"
-#include "Shader.h"
+#include "../Renderer/Mesh.h"
+#include "../Renderer/Shader.h"
+
 
 class Renderer {
-  public:
-	void BeginFrame(const RenderParams& params);
-	void Draw(
-	const Mesh& mesh,
-	const Shader& shader,
-	const Matrix4& mvp);
+public:
+    void Initialize();
 
-  private:
+    void BeginFrame(
+        const Vec3& background_color
+    );
+
+    void SetViewport(
+        int width,
+        int height
+    );
+
+    void Draw(
+        const Mesh& mesh,
+        const Shader& shader,
+        const Matrix4& mvp
+    );
 };

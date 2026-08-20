@@ -1,6 +1,7 @@
 #include "Shader.h"
 
-#include "Engine/Platform/OpenGL/Glad/glad.h"
+#include "../Platform/OpenGL/Glad/glad.h"
+#include "../Math/affine_transformation.h"
 
 #include <filesystem>
 #include <fstream>
@@ -275,8 +276,11 @@ void Shader::SetVec4(
     const std::string& name,
     const Vec4& value
 ) const {
-    GLint location =
-        glGetUniformLocation(program_id_, name.c_str());
+    const GLint location =
+        glGetUniformLocation(
+            program_id_,
+            name.c_str()
+        );
 
     glUniform4f(
         location,
@@ -287,15 +291,21 @@ void Shader::SetVec4(
     );
 }
 
+
 void Shader::SetMat4(
     const std::string& name,
     const Matrix4& value
 ) const {
-    GLint location =
-        glGetUniformLocation(program_id_, name.c_str());
+    const GLint location =
+        glGetUniformLocation(
+            program_id_,
+            name.c_str()
+        );
 
     const std::array<float, 16> col_major =
-        AffineTransformation::GetColMajor(value);
+        AffineTransformation::GetColMajor(
+            value
+        );
 
     glUniformMatrix4fv(
         location,

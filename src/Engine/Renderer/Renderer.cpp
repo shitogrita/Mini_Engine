@@ -1,11 +1,21 @@
 #include "Renderer.h"
 
 #include "../Platform/OpenGL/Glad/glad.h"
-#include <algorithm>
 
 
+void Renderer::Initialize()
+{
+	glEnable(GL_DEPTH_TEST);
 
-void Renderer::BeginFrame(const Vec3& background_color) {
+	// Нужен для gl_PointSize из vertex shader.
+	glEnable(GL_PROGRAM_POINT_SIZE);
+}
+
+
+void Renderer::BeginFrame(
+	const Vec3& background_color
+)
+{
 	glClearColor(
 		background_color.x,
 		background_color.y,
@@ -19,23 +29,44 @@ void Renderer::BeginFrame(const Vec3& background_color) {
 	);
 }
 
+
+void Renderer::SetViewport(
+	int width,
+	int height
+)
+{
+	glViewport(
+		0,
+		0,
+		width,
+		height
+	);
+}
+
+
 void Renderer::Draw(
 	const Mesh& mesh,
 	const Shader& shader,
 	const Matrix4& mvp
-) {
+)
+{
 	shader.Use();
-	shader.SetMat4("uMVP", mvp);
+
+	shader.SetMat4(
+		"uMVP",
+		mvp
+	);
 
 	mesh.Bind();
 
 	glDrawElements(
 		GL_TRIANGLES,
-		static_cast<GLsizei>(mesh.GetIndexCount()),
+		static_cast<GLsizei>(
+			mesh.GetIndexCount()
+		),
 		GL_UNSIGNED_INT,
 		nullptr
 	);
 
 	glBindVertexArray(0);
-
 }

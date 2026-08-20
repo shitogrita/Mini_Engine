@@ -32,6 +32,14 @@ target_link_libraries(
         PRIVATE
         mini_engine_core
         Qt6::Widgets
+        Qt6::OpenGLWidgets
+)
+
+target_compile_definitions(
+        mini_engine_editor
+
+        PRIVATE
+        MINI_ENGINE_SHADER_DIR="${PROJECT_SOURCE_DIR}/src/Engine/Shaders"
 )
 
 set_target_properties(
