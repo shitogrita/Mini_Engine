@@ -7,9 +7,11 @@
 #include "Engine/Renderer/Shader.h"
 #include "Engine/Scene/Camera.h"
 
+#include <QElapsedTimer>
 #include <QOpenGLWidget>
-#include <QTimer>
+#include <QPointF>
 #include <QString>
+#include <QTimer>
 
 #include <memory>
 #include <optional>
@@ -17,88 +19,131 @@
 
 class QLabel;
 class QKeyEvent;
+class QMouseEvent;
+class QWheelEvent;
 
 
 class SceneViewport final : public QOpenGLWidget {
 public:
-	explicit SceneViewport(
-		QWidget* parent = nullptr
-	);
+    enum class ProjectionMode {
+        Perspective,
+        Orthographic
+    };
 
-	~SceneViewport() override;
+public:
+    explicit SceneViewport(
+        QWidget* parent = nullptr
+    );
 
-	void SetDisplayedFile(
-		const QString& file_path
-	);
+    ~SceneViewport() override;
+
+    void SetDisplayedFile(
+        const QString& file_path
+    );
+
+    void SetProjectionMode(
+        ProjectionMode mode
+    );
+
+    ProjectionMode GetProjectionMode() const;
 
 private:
-	void CreateLayout();
+    void CreateLayout();
 
-	void UploadPendingMesh();
+    void UploadPendingMesh();
 
-	void CalculateModelFit(
-		const ImportedMeshData& mesh_data
-	);
+    void CalculateModelFit(
+        const ImportedMeshData& mesh_data
+    );
 
-	void TickInput();
+    void TickInput();
+
+    void UpdateProjectionTitle();
 
 protected:
-	void initializeGL() override;
+    void initializeGL() override;
 
-	void resizeGL(
-		int width,
-		int height
-	) override;
+    void resizeGL(
+        int width,
+        int height
+    ) override;
 
-	void paintGL() override;
+    void paintGL() override;
 
-	void keyPressEvent(
-		QKeyEvent* event
-	) override;
+    void keyPressEvent(
+        QKeyEvent* event
+    ) override;
 
-	void keyReleaseEvent(
-		QKeyEvent* event
-	) override;
+    void keyReleaseEvent(
+        QKeyEvent* event
+    ) override;
+
+    void mousePressEvent(
+        QMouseEvent* event
+    ) override;
+
+    void mouseReleaseEvent(
+        QMouseEvent* event
+    ) override;
+
+    void mouseMoveEvent(
+        QMouseEvent* event
+    ) override;
+
+    void wheelEvent(
+        QWheelEvent* event
+    ) override;
 
 private:
-	QLabel* title_label_ = nullptr;
-	QLabel* content_label_ = nullptr;
+    QLabel* title_label_ = nullptr;
+    QLabel* content_label_ = nullptr;
 
-	Renderer renderer_;
+    Renderer renderer_;
 
-	Camera camera_;
+    Camera camera_;
 
-	std::unique_ptr<Shader> shader_;
-	std::unique_ptr<Mesh> mesh_;
+    std::unique_ptr<Shader> shader_;
+    std::unique_ptr<Mesh> mesh_;
 
-	std::optional<ImportedMeshData>
-		pending_mesh_data_;
+    std::optional<ImportedMeshData>
+        pending_mesh_data_;
 
-	QString current_file_path_;
+    QString current_file_path_;
 
-	Vec3 background_color_{
-		0.12f,
-		0.12f,
-		0.12f
-	};
+    Vec3 background_color_{
+        0.12f,
+        0.12f,
+        0.12f
+    };
 
-	Vec3 model_position_{};
-	Vec3 model_rotation_{};
+    Vec3 model_position_{};
+    Vec3 model_rotation_{};
 
-	Vec3 model_scale_{
-		1.0f,
-		1.0f,
-		1.0f
-	};
+    Vec3 model_scale_{
+        1.0f,
+        1.0f,
+        1.0f
+    };
 
-	bool move_forward_ = false;
-	bool move_backward_ = false;
-	bool move_left_ = false;
-	bool move_right_ = false;
-	bool move_up_ = false;
-	bool move_down_ = false;
+    bool move_forward_ = false;
+    bool move_backward_ = false;
+    bool move_left_ = false;
+    bool move_right_ = false;
+    bool move_up_ = false;
+    bool move_down_ = false;
 
-	QTimer input_timer_;
+    bool pointer_look_active_ = false;
 
-	bool gl_initialized_ = false;
+    QPointF last_pointer_position_;
+
+    QTimer input_timer_;
+    QElapsedTimer input_clock_;
+
+    ProjectionMode projection_mode_ =
+        ProjectionMode::Perspective;
+
+    float orthographic_half_height_ =
+        1.5f;
+
+    bool gl_initialized_ = false;
 };
