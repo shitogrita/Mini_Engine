@@ -6,6 +6,8 @@
 #include "Engine/Renderer/Renderer.h"
 #include "Engine/Renderer/Shader.h"
 #include "Engine/Scene/Camera.h"
+#include "Engine/Scene/Scene.h"
+#include "Engine/Scene/SceneObject.h"
 
 #include <QElapsedTimer>
 #include <QOpenGLWidget>
@@ -47,6 +49,13 @@ public:
 
     ProjectionMode GetProjectionMode() const;
 
+    Scene& GetScene();
+    const Scene& GetScene() const;
+
+    void SetSelectedObject(
+        std::shared_ptr<SceneObject> object
+    );
+
 private:
     void CreateLayout();
 
@@ -59,6 +68,21 @@ private:
     void TickInput();
 
     void UpdateProjectionTitle();
+
+    void UpdateCoordinatesLabel();
+
+    void ArrangeSceneObjects();
+
+    void CreateEditorGrid();
+
+    ImportedMeshData CreateGridMeshData() const;
+
+    ImportedMeshData CreateAxisMeshData(
+        const Vec3& start,
+        const Vec3& end
+    ) const;
+
+    Vec3 FindSpawnPosition() const;
 
 protected:
     void initializeGL() override;
@@ -97,13 +121,31 @@ protected:
 private:
     QLabel* title_label_ = nullptr;
     QLabel* content_label_ = nullptr;
+    QLabel* coordinates_label_ = nullptr;
 
     Renderer renderer_;
 
     Camera camera_;
 
-    std::unique_ptr<Shader> shader_;
-    std::unique_ptr<Mesh> mesh_;
+    Scene scene_;
+
+    std::shared_ptr<SceneObject>
+        selected_object_;
+
+    std::unique_ptr<Shader>
+        shader_;
+
+    std::unique_ptr<Mesh>
+        grid_mesh_;
+
+    std::unique_ptr<Mesh>
+        axis_x_mesh_;
+
+    std::unique_ptr<Mesh>
+        axis_y_mesh_;
+
+    std::unique_ptr<Mesh>
+        axis_z_mesh_;
 
     std::optional<ImportedMeshData>
         pending_mesh_data_;
@@ -111,9 +153,9 @@ private:
     QString current_file_path_;
 
     Vec3 background_color_{
-        0.12f,
-        0.12f,
-        0.12f
+        0.145f,
+        0.153f,
+        0.165f
     };
 
     Vec3 model_position_{};
@@ -143,7 +185,7 @@ private:
         ProjectionMode::Perspective;
 
     float orthographic_half_height_ =
-        1.5f;
+        5.0f;
 
     bool gl_initialized_ = false;
 };

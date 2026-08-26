@@ -72,6 +72,7 @@ SceneViewport::SceneViewport(
         [this]()
         {
             TickInput();
+            UpdateCoordinatesLabel();
             update();
         }
     );
@@ -85,7 +86,13 @@ SceneViewport::~SceneViewport()
     if (context() != nullptr) {
         makeCurrent();
 
-        mesh_.reset();
+        scene_.Clear();
+
+        grid_mesh_.reset();
+        axis_x_mesh_.reset();
+        axis_y_mesh_.reset();
+        axis_z_mesh_.reset();
+
         shader_.reset();
 
         doneCurrent();
@@ -106,7 +113,7 @@ void SceneViewport::CreateLayout()
             this
         );
 
-    title_label_->setFixedHeight(30);
+    title_label_->setFixedHeight(34);
 
     title_label_->setAlignment(
         Qt::AlignVCenter |
@@ -114,7 +121,7 @@ void SceneViewport::CreateLayout()
     );
 
     title_label_->setContentsMargins(
-        10,
+        12,
         0,
         0,
         0
@@ -122,12 +129,14 @@ void SceneViewport::CreateLayout()
 
     title_label_->setStyleSheet(
         R"(
-            background-color: #292929;
-            color: #dddddd;
-            border-bottom: 1px solid #3a3a3a;
+            background-color: #3c3f41;
+            color: #d7dae0;
+            border-bottom: 1px solid #51555a;
+            font-size: 13px;
             font-weight: 600;
         )"
     );
+
 
     content_label_ =
         new QLabel(this);
@@ -144,11 +153,41 @@ void SceneViewport::CreateLayout()
 
     content_label_->setStyleSheet(
         R"(
-            background-color: #1e1e1e;
-            color: #909090;
-            font-size: 17px;
+            background-color: #25282b;
+            color: #a9adb3;
+            font-size: 16px;
         )"
     );
+
+
+    coordinates_label_ =
+        new QLabel(this);
+
+    coordinates_label_->setAlignment(
+        Qt::AlignRight |
+        Qt::AlignTop
+    );
+
+    coordinates_label_->setStyleSheet(
+        R"(
+            background-color: rgba(48, 51, 55, 210);
+            color: #c5c8ce;
+            border: 1px solid #55595f;
+            border-radius: 4px;
+            padding: 7px 9px;
+            font-family: Menlo;
+            font-size: 11px;
+        )"
+    );
+
+    coordinates_label_->setText(
+        "Camera\n"
+        "X  0.000\n"
+        "Y  0.000\n"
+        "Z  3.000"
+    );
+
+    coordinates_label_->adjustSize();
 
     UpdateProjectionTitle();
 }
@@ -166,22 +205,183 @@ void SceneViewport::initializeGL()
 
     renderer_.Initialize();
 
-    const std::filesystem::path
-        shader_directory =
-            MINI_ENGINE_SHADER_DIR;
+    const std::filesystem::path shader_directory =
+        MINI_ENGINE_SHADER_DIR;
 
     shader_ =
         std::make_unique<Shader>(
-            shader_directory /
-                "basic.vert",
-
-            shader_directory /
-                "basic.frag"
+            shader_directory / "basic.vert",
+            shader_directory / "basic.frag"
         );
+
+    CreateEditorGrid();
 
     gl_initialized_ = true;
 
     UploadPendingMesh();
+}
+
+
+void SceneViewport::CreateEditorGrid()
+{
+    grid_mesh_ =
+        std::make_unique<Mesh>(
+            CreateGridMeshData()
+        );
+
+    axis_x_mesh_ =
+        std::make_unique<Mesh>(
+            CreateAxisMeshData(
+                Vec3{-10.0f, 0.0f, 0.0f},
+                Vec3{10.0f, 0.0f, 0.0f}
+            )
+        );
+
+    axis_y_mesh_ =
+        std::make_unique<Mesh>(
+            CreateAxisMeshData(
+                Vec3{0.0f, -10.0f, 0.0f},
+                Vec3{0.0f, 10.0f, 0.0f}
+            )
+        );
+
+    axis_z_mesh_ =
+        std::make_unique<Mesh>(
+            CreateAxisMeshData(
+                Vec3{0.0f, 0.0f, -10.0f},
+                Vec3{0.0f, 0.0f, 10.0f}
+            )
+        );
+}
+
+
+ImportedMeshData
+SceneViewport::CreateGridMeshData() const
+{
+    ImportedMeshData data;
+
+    constexpr int half_grid = 10;
+    constexpr float step = 1.0f;
+
+    for (
+        int index = -half_grid;
+        index <= half_grid;
+        ++index
+    ) {
+        if (index == 0) {
+            continue;
+        }
+
+        const float coordinate =
+            static_cast<float>(index) *
+            step;
+
+        Vertex first_z{};
+        first_z.position =
+            Vec3{
+                coordinate,
+                0.0f,
+                -half_grid * step
+            };
+
+        Vertex second_z{};
+        second_z.position =
+            Vec3{
+                coordinate,
+                0.0f,
+                half_grid * step
+            };
+
+        const std::uint32_t first_index =
+            static_cast<std::uint32_t>(
+                data.render_vertices.size()
+            );
+
+        data.render_vertices.push_back(
+            first_z
+        );
+
+        data.render_vertices.push_back(
+            second_z
+        );
+
+        data.render_indices.push_back(
+            first_index
+        );
+
+        data.render_indices.push_back(
+            first_index + 1
+        );
+
+
+        Vertex first_x{};
+        first_x.position =
+            Vec3{
+                -half_grid * step,
+                0.0f,
+                coordinate
+            };
+
+        Vertex second_x{};
+        second_x.position =
+            Vec3{
+                half_grid * step,
+                0.0f,
+                coordinate
+            };
+
+        const std::uint32_t second_index =
+            static_cast<std::uint32_t>(
+                data.render_vertices.size()
+            );
+
+        data.render_vertices.push_back(
+            first_x
+        );
+
+        data.render_vertices.push_back(
+            second_x
+        );
+
+        data.render_indices.push_back(
+            second_index
+        );
+
+        data.render_indices.push_back(
+            second_index + 1
+        );
+    }
+
+    return data;
+}
+
+
+ImportedMeshData
+SceneViewport::CreateAxisMeshData(
+    const Vec3& start,
+    const Vec3& end
+) const
+{
+    ImportedMeshData data;
+
+    Vertex first{};
+    first.position = start;
+
+    Vertex second{};
+    second.position = end;
+
+    data.render_vertices.push_back(
+        first
+    );
+
+    data.render_vertices.push_back(
+        second
+    );
+
+    data.render_indices.push_back(0);
+    data.render_indices.push_back(1);
+
+    return data;
 }
 
 
@@ -200,19 +400,33 @@ void SceneViewport::resizeGL(
             0,
             0,
             width,
-            30
+            34
         );
     }
 
     if (content_label_ != nullptr) {
         content_label_->setGeometry(
             0,
-            30,
+            34,
             width,
             std::max(
                 0,
-                height - 30
+                height - 34
             )
+        );
+    }
+
+    if (coordinates_label_ != nullptr) {
+        coordinates_label_->adjustSize();
+
+        coordinates_label_->move(
+            std::max(
+                10,
+                width -
+                    coordinates_label_->width() -
+                    14
+            ),
+            48
         );
     }
 }
@@ -224,29 +438,17 @@ void SceneViewport::paintGL()
         background_color_
     );
 
-    if (!mesh_ || !shader_) {
+    if (!shader_) {
         return;
     }
-
-    const Matrix4 model =
-        AffineTransformation::
-            ComposeModelMatrix(
-                model_position_,
-                model_rotation_,
-                model_scale_
-            );
 
     const Matrix4 view =
         camera_.GetViewMatrix();
 
     const float aspect =
         height() > 0
-            ? static_cast<float>(
-                  width()
-              ) /
-              static_cast<float>(
-                  height()
-              )
+            ? static_cast<float>(width()) /
+              static_cast<float>(height())
             : 1.0f;
 
     Matrix4 projection{};
@@ -280,31 +482,15 @@ void SceneViewport::paintGL()
             );
     }
 
-    const Matrix4 view_model =
-        AffineTransformation::
-            Multiply4(
-                view,
-                model
-            );
 
-    const Matrix4 mvp =
-        AffineTransformation::
-            Multiply4(
-                projection,
-                view_model
-            );
+    const Matrix4 view_projection =
+        AffineTransformation::Multiply4(
+            projection,
+            view
+        );
+
 
     shader_->Use();
-
-    shader_->SetVec4(
-        "uColor",
-        Vec4{
-            0.72f,
-            0.78f,
-            0.90f,
-            1.0f
-        }
-    );
 
     shader_->SetInt(
         "uPointMode",
@@ -326,11 +512,135 @@ void SceneViewport::paintGL()
         1.0f
     );
 
-    renderer_.Draw(
-        *mesh_,
-        *shader_,
-        mvp
+
+    if (grid_mesh_) {
+        shader_->SetVec4(
+            "uColor",
+            Vec4{
+                0.30f,
+                0.32f,
+                0.35f,
+                1.0f
+            }
+        );
+
+        renderer_.DrawLines(
+            *grid_mesh_,
+            *shader_,
+            view_projection,
+            1.0f
+        );
+    }
+
+
+    if (axis_x_mesh_) {
+        shader_->SetVec4(
+            "uColor",
+            Vec4{
+                0.82f,
+                0.30f,
+                0.30f,
+                1.0f
+            }
+        );
+
+        renderer_.DrawLines(
+            *axis_x_mesh_,
+            *shader_,
+            view_projection,
+            2.0f
+        );
+    }
+
+
+    if (axis_z_mesh_) {
+        shader_->SetVec4(
+            "uColor",
+            Vec4{
+                0.30f,
+                0.52f,
+                0.90f,
+                1.0f
+            }
+        );
+
+        renderer_.DrawLines(
+            *axis_z_mesh_,
+            *shader_,
+            view_projection,
+            2.0f
+        );
+    }
+
+
+    if (axis_y_mesh_) {
+        shader_->SetVec4(
+            "uColor",
+            Vec4{
+                0.40f,
+                0.75f,
+                0.42f,
+                1.0f
+            }
+        );
+
+        renderer_.DrawLines(
+            *axis_y_mesh_,
+            *shader_,
+            view_projection,
+            2.0f
+        );
+    }
+
+
+    shader_->SetVec4(
+        "uColor",
+        Vec4{
+            0.67f,
+            0.76f,
+            0.91f,
+            1.0f
+        }
     );
+
+
+    for (
+        const std::shared_ptr<SceneObject>& object :
+        scene_.GetObjects()
+    ) {
+        if (!object) {
+            continue;
+        }
+
+        const std::shared_ptr<const Mesh> mesh =
+            object->GetMesh();
+
+        if (!mesh) {
+            continue;
+        }
+
+        const Matrix4 model =
+            object->GetTransform()
+                .GetModelMatrix();
+
+        const Matrix4 view_model =
+            AffineTransformation::Multiply4(
+                view,
+                model
+            );
+
+        const Matrix4 mvp =
+            AffineTransformation::Multiply4(
+                projection,
+                view_model
+            );
+
+        renderer_.Draw(
+            *mesh,
+            *shader_,
+            mvp
+        );
+    }
 }
 
 
@@ -383,9 +693,35 @@ void SceneViewport::SetDisplayedFile(
 
     content_label_->hide();
 
-    // После открытия модели WASD сразу работает
-    // без дополнительного клика по viewport.
     setFocus();
+
+    UpdateProjectionTitle();
+    UpdateCoordinatesLabel();
+
+    update();
+}
+
+
+Scene& SceneViewport::GetScene()
+{
+    return scene_;
+}
+
+
+const Scene& SceneViewport::GetScene() const
+{
+    return scene_;
+}
+
+
+void SceneViewport::SetSelectedObject(
+    std::shared_ptr<SceneObject> object
+)
+{
+    selected_object_ =
+        std::move(object);
+
+    UpdateCoordinatesLabel();
 
     update();
 }
@@ -417,12 +753,143 @@ void SceneViewport::UploadPendingMesh()
         return;
     }
 
-    mesh_ =
-        std::make_unique<Mesh>(
+    auto mesh =
+        std::make_shared<Mesh>(
             *pending_mesh_data_
         );
 
+    const QFileInfo file_info(
+        current_file_path_
+    );
+
+    auto object =
+        std::make_shared<SceneObject>(
+            file_info.completeBaseName()
+                .toStdString(),
+            std::move(mesh)
+        );
+
+    Transform& transform =
+        object->GetTransform();
+
+    transform.position =
+        model_position_;
+
+    transform.rotation =
+        model_rotation_;
+
+    transform.scale =
+        model_scale_;
+
+
+    /*
+     * Находим стартовую позицию только
+     * для НОВОГО объекта.
+     *
+     * Уже существующие SceneObject
+     * вообще не изменяются.
+     */
+    const Vec3 spawn_position =
+        FindSpawnPosition();
+
+    transform.position.x +=
+        spawn_position.x;
+
+    transform.position.y +=
+        spawn_position.y;
+
+    transform.position.z +=
+        spawn_position.z;
+
+
+    scene_.AddObject(
+        std::move(object)
+    );
+
+    UpdateProjectionTitle();
+
     pending_mesh_data_.reset();
+}
+
+
+Vec3 SceneViewport::FindSpawnPosition() const
+{
+    constexpr float spacing =
+        0.9f;
+
+    const std::size_t object_count =
+        scene_.GetObjects().size();
+
+    if (object_count == 0) {
+        return Vec3{
+            0.0f,
+            0.0f,
+            0.0f
+        };
+    }
+
+    const std::size_t pair_index =
+        (object_count + 1) / 2;
+
+    const float direction =
+        object_count % 2 == 1
+            ? 1.0f
+            : -1.0f;
+
+    return Vec3{
+        direction *
+            static_cast<float>(
+                pair_index
+            ) *
+            spacing,
+
+        0.0f,
+
+        0.0f
+    };
+}
+
+
+void SceneViewport::ArrangeSceneObjects()
+{
+    const auto& objects =
+        scene_.GetObjects();
+
+    if (objects.empty()) {
+        return;
+    }
+
+    constexpr float spacing =
+        0.9f;
+
+    const float total_width =
+        static_cast<float>(
+            objects.size() - 1
+        ) * spacing;
+
+    const float start_x =
+        -total_width * 0.5f;
+
+    for (
+        std::size_t index = 0;
+        index < objects.size();
+        ++index
+    ) {
+        if (!objects[index]) {
+            continue;
+        }
+
+        Transform& transform =
+            objects[index]->
+                GetTransform();
+
+        transform.position.x =
+            start_x +
+            static_cast<float>(
+                index
+            ) *
+            spacing;
+    }
 }
 
 
@@ -523,7 +990,7 @@ void SceneViewport::CalculateModelFit(
 
     if (maximum_size > 0.000001f) {
         fit_scale =
-            1.5f /
+            0.6f /
             maximum_size;
     }
 
@@ -558,11 +1025,6 @@ void SceneViewport::TickInput()
         ) /
         1000.0f;
 
-    /*
-     * Если приложение долго было остановлено debugger'ом
-     * или свернуто, не позволяем следующему кадру
-     * телепортировать камеру.
-     */
     delta_time =
         std::min(
             delta_time,
@@ -620,18 +1082,116 @@ void SceneViewport::UpdateProjectionTitle()
         return;
     }
 
-    if (
+    const QString projection_name =
         projection_mode_ ==
         ProjectionMode::Perspective
-    ) {
-        title_label_->setText(
-            "Scene  •  Perspective"
-        );
-    } else {
-        title_label_->setText(
-            "Scene  •  Orthographic"
-        );
+            ? "Perspective"
+            : "Orthographic";
+
+    title_label_->setText(
+        QString(
+            "Scene  •  %1  •  Objects: %2"
+        )
+        .arg(
+            projection_name
+        )
+        .arg(
+            scene_.GetObjects().size()
+        )
+    );
+}
+
+
+void SceneViewport::UpdateCoordinatesLabel()
+{
+    if (coordinates_label_ == nullptr) {
+        return;
     }
+
+    const Vec3& camera_position =
+        camera_.GetPosition();
+
+    QString text =
+        QString(
+            "CAMERA\n"
+            "X  %1\n"
+            "Y  %2\n"
+            "Z  %3"
+        )
+        .arg(
+            camera_position.x,
+            0,
+            'f',
+            3
+        )
+        .arg(
+            camera_position.y,
+            0,
+            'f',
+            3
+        )
+        .arg(
+            camera_position.z,
+            0,
+            'f',
+            3
+        );
+
+    if (selected_object_) {
+        const Transform& transform =
+            selected_object_->
+                GetTransform();
+
+        text +=
+            QString(
+                "\n\nSELECTED\n"
+                "%1\n"
+                "X  %2\n"
+                "Y  %3\n"
+                "Z  %4"
+            )
+            .arg(
+                QString::fromStdString(
+                    selected_object_->
+                        GetName()
+                )
+            )
+            .arg(
+                transform.position.x,
+                0,
+                'f',
+                3
+            )
+            .arg(
+                transform.position.y,
+                0,
+                'f',
+                3
+            )
+            .arg(
+                transform.position.z,
+                0,
+                'f',
+                3
+            );
+    }
+
+    coordinates_label_->setText(
+        text
+    );
+
+    coordinates_label_->adjustSize();
+
+    coordinates_label_->move(
+        std::max(
+            10,
+            width() -
+                coordinates_label_->
+                    width() -
+                14
+        ),
+        48
+    );
 }
 
 
@@ -797,11 +1357,6 @@ void SceneViewport::mouseMoveEvent(
     last_pointer_position_ =
         current_position;
 
-    /*
-     * Для MacBook trackpad физическое движение пальца
-     * относительно небольшое, поэтому чувствительность
-     * делаем умеренной.
-     */
     constexpr float look_sensitivity =
         0.18f;
 
@@ -815,6 +1370,8 @@ void SceneViewport::mouseMoveEvent(
         ) * look_sensitivity
     );
 
+    UpdateCoordinatesLabel();
+
     update();
 
     event->accept();
@@ -825,12 +1382,6 @@ void SceneViewport::wheelEvent(
     QWheelEvent* event
 )
 {
-    /*
-     * На Mac trackpad pixelDelta() обычно содержит
-     * высокоточное двухпальцевое движение.
-     *
-     * У обычной мыши чаще доступен angleDelta().
-     */
     float scroll_y = 0.0f;
 
     if (!event->pixelDelta().isNull()) {
@@ -858,13 +1409,6 @@ void SceneViewport::wheelEvent(
             scroll_y
         );
     } else {
-        /*
-         * В orthographic projection движение камеры
-         * вперёд не изменяет видимый размер объекта.
-         *
-         * Поэтому zoom меняет размер самого
-         * orthographic volume.
-         */
         orthographic_half_height_ -=
             scroll_y * 0.5f;
 
@@ -875,6 +1419,8 @@ void SceneViewport::wheelEvent(
                 50.0f
             );
     }
+
+    UpdateCoordinatesLabel();
 
     update();
 

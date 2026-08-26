@@ -146,51 +146,104 @@ void EditorWindow::CreateMenuBar()
 
 void EditorWindow::CreateDockWidgets()
 {
-    hierarchy_dock_ = new QDockWidget("Hierarchy", this);
-    hierarchy_dock_->setObjectName("HierarchyDock");
+    hierarchy_dock_ =
+        new QDockWidget(
+            "Hierarchy",
+            this
+        );
 
-    hierarchy_panel_ = new HierarchyPanel(hierarchy_dock_);
-    hierarchy_dock_->setWidget(hierarchy_panel_);
+    hierarchy_dock_->setObjectName(
+        "HierarchyDock"
+    );
+
+    hierarchy_panel_ =
+        new HierarchyPanel(
+            hierarchy_dock_
+        );
+
+    hierarchy_dock_->setWidget(
+        hierarchy_panel_
+    );
 
     addDockWidget(
         Qt::LeftDockWidgetArea,
         hierarchy_dock_
     );
 
-    inspector_dock_ = new QDockWidget("Inspector", this);
-    inspector_dock_->setObjectName("InspectorDock");
 
-    inspector_panel_ = new InspectorPanel(inspector_dock_);
-    inspector_dock_->setWidget(inspector_panel_);
+    inspector_dock_ =
+        new QDockWidget(
+            "Inspector",
+            this
+        );
+
+    inspector_dock_->setObjectName(
+        "InspectorDock"
+    );
+
+    inspector_panel_ =
+        new InspectorPanel(
+            inspector_dock_
+        );
+
+    inspector_dock_->setWidget(
+        inspector_panel_
+    );
 
     addDockWidget(
         Qt::RightDockWidgetArea,
         inspector_dock_
     );
 
-    project_dock_ = new QDockWidget("Project", this);
-    project_dock_->setObjectName("ProjectDock");
 
-    project_panel_ = new ProjectPanel(project_dock_);
-    project_dock_->setWidget(project_panel_);
+    project_dock_ =
+        new QDockWidget(
+            "Project",
+            this
+        );
+
+    project_dock_->setObjectName(
+        "ProjectDock"
+    );
+
+    project_panel_ =
+        new ProjectPanel(
+            project_dock_
+        );
+
+    project_dock_->setWidget(
+        project_panel_
+    );
 
     addDockWidget(
         Qt::BottomDockWidgetArea,
         project_dock_
     );
 
+
     resizeDocks(
-        {hierarchy_dock_, inspector_dock_},
-        {260, 300},
+        {
+            hierarchy_dock_,
+            inspector_dock_
+        },
+        {
+            260,
+            300
+        },
         Qt::Horizontal
     );
 
     resizeDocks(
-        {project_dock_},
-        {230},
+        {
+            project_dock_
+        },
+        {
+            230
+        },
         Qt::Vertical
     );
 
+
     connect(
         show_hierarchy_action_,
         &QAction::toggled,
@@ -212,6 +265,7 @@ void EditorWindow::CreateDockWidgets()
         &QDockWidget::setVisible
     );
 
+
     connect(
         hierarchy_dock_,
         &QDockWidget::visibilityChanged,
@@ -232,6 +286,49 @@ void EditorWindow::CreateDockWidgets()
         show_project_action_,
         &QAction::setChecked
     );
+
+
+    // Hierarchy теперь показывает реальные объекты,
+    // которые находятся в SceneViewport::scene_.
+    hierarchy_panel_->SetScene(
+        &scene_viewport_->GetScene()
+    );
+
+
+    // Клик по объекту в Hierarchy:
+    //
+    // 1. запоминаем выбранный SceneObject в viewport;
+    // 2. передаём тот же объект в Inspector.
+    hierarchy_panel_->
+        SetSelectionChangedCallback(
+            [this](
+                std::shared_ptr<SceneObject> object
+            )
+            {
+                scene_viewport_->
+                    SetSelectedObject(
+                        object
+                    );
+
+                inspector_panel_->
+                    SetSelectedObject(
+                        std::move(object)
+                    );
+            }
+        );
+
+    // Когда пользователь меняет Position / Rotation / Scale
+    // в Inspector, Transform объекта уже изменяется там.
+    // Здесь только просим viewport перерисовать сцену,
+    // чтобы изменение сразу стало видно.
+    inspector_panel_->
+        SetTransformChangedCallback(
+            [this]()
+            {
+                scene_viewport_->
+                    update();
+            }
+        );
 }
 
 void EditorWindow::CreateStatusBar()
@@ -256,6 +353,7 @@ void EditorWindow::OpenModelFile()
     const QFileInfo file_info(file_path);
 
     scene_viewport_->SetDisplayedFile(file_path);
+    hierarchy_panel_->Refresh();
     project_panel_->AddImportedFile(file_path);
 
     statusBar()->showMessage(
@@ -268,89 +366,176 @@ void EditorWindow::ApplyEditorStyle()
     setStyleSheet(
         R"(
             QMainWindow {
-                background-color: #1e1e1e;
+                background-color: #3c3f41;
+            }
+
+            QWidget {
+                color: #d7dae0;
+                font-size: 13px;
             }
 
             QMenuBar {
-                background-color: #2b2b2b;
-                color: #dddddd;
-                border-bottom: 1px solid #3a3a3a;
-                padding: 2px;
+                background-color: #3c3f41;
+                color: #d7dae0;
+                border-bottom: 1px solid #51555a;
+                padding: 3px;
             }
 
             QMenuBar::item {
                 background-color: transparent;
-                padding: 5px 10px;
+                padding: 6px 11px;
+                border-radius: 3px;
             }
 
             QMenuBar::item:selected {
-                background-color: #3d3d3d;
+                background-color: #4b4e52;
             }
 
             QMenu {
-                background-color: #2b2b2b;
-                color: #dddddd;
-                border: 1px solid #444444;
+                background-color: #3c3f41;
+                color: #d7dae0;
+                border: 1px solid #5b5f64;
+                padding: 4px;
             }
 
             QMenu::item {
                 padding: 6px 28px 6px 20px;
+                border-radius: 3px;
             }
 
             QMenu::item:selected {
-                background-color: #3f4f5f;
+                background-color: #365880;
+                color: white;
             }
 
             QDockWidget {
-                color: #dddddd;
+                color: #d7dae0;
                 font-weight: 600;
-                titlebar-close-icon: none;
-                titlebar-normal-icon: none;
             }
 
             QDockWidget::title {
-                background-color: #292929;
-                border: 1px solid #3a3a3a;
-                padding: 6px;
+                background-color: #45484c;
+                border-bottom: 1px solid #585c61;
+                padding: 7px 8px;
                 text-align: left;
             }
 
             QTreeWidget {
-                background-color: #252525;
-                color: #dddddd;
+                background-color: #313335;
+                color: #d7dae0;
                 border: none;
                 outline: none;
-                alternate-background-color: #282828;
+                padding: 3px;
             }
 
             QTreeWidget::item {
-                min-height: 23px;
+                min-height: 25px;
+                border-radius: 2px;
+            }
+
+            QTreeWidget::item:hover {
+                background-color: #3f4246;
             }
 
             QTreeWidget::item:selected {
-                background-color: #3f5264;
+                background-color: #365880;
+                color: #ffffff;
             }
 
             QLabel {
-                color: #dddddd;
+                color: #d7dae0;
             }
 
             QLineEdit {
-                background-color: #202020;
-                color: #dddddd;
-                border: 1px solid #454545;
-                border-radius: 3px;
-                padding: 5px;
+                background-color: #2b2d30;
+                color: #d7dae0;
+                border: 1px solid #55595f;
+                border-radius: 4px;
+                padding: 6px;
+                selection-background-color: #365880;
+            }
+
+            QLineEdit:focus {
+                border: 1px solid #4a88c7;
+            }
+
+            QDoubleSpinBox {
+                background-color: #2b2d30;
+                color: #d7dae0;
+                border: 1px solid #55595f;
+                border-radius: 4px;
+                padding: 4px 6px;
+                min-height: 22px;
+                selection-background-color: #365880;
+            }
+
+            QDoubleSpinBox:focus {
+                border: 1px solid #4a88c7;
+            }
+
+            QDoubleSpinBox::up-button,
+            QDoubleSpinBox::down-button {
+                width: 0px;
+                height: 0px;
+                border: none;
             }
 
             QStatusBar {
-                background-color: #292929;
-                color: #bbbbbb;
-                border-top: 1px solid #3a3a3a;
+                background-color: #3c3f41;
+                color: #b8bbc1;
+                border-top: 1px solid #51555a;
             }
 
             QSplitter::handle {
-                background-color: #3a3a3a;
+                background-color: #51555a;
+            }
+
+            QScrollBar:vertical {
+                background-color: #313335;
+                width: 11px;
+                margin: 0px;
+            }
+
+            QScrollBar::handle:vertical {
+                background-color: #5b5e63;
+                border-radius: 5px;
+                min-height: 25px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background-color: #6a6d72;
+            }
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+
+            QScrollBar:horizontal {
+                background-color: #313335;
+                height: 11px;
+            }
+
+            QScrollBar::handle:horizontal {
+                background-color: #5b5e63;
+                border-radius: 5px;
+                min-width: 25px;
+            }
+
+            QScrollBar::handle:horizontal:hover {
+                background-color: #6a6d72;
+            }
+
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
+
+            QToolTip {
+                background-color: #45484c;
+                color: #f0f0f0;
+                border: 1px solid #666a70;
+                padding: 5px;
             }
         )"
     );

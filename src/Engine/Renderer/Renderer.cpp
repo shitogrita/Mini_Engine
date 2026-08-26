@@ -7,7 +7,6 @@ void Renderer::Initialize()
 {
 	glEnable(GL_DEPTH_TEST);
 
-	// Нужен для gl_PointSize из vertex shader.
 	glEnable(GL_PROGRAM_POINT_SIZE);
 }
 
@@ -61,6 +60,39 @@ void Renderer::Draw(
 
 	glDrawElements(
 		GL_TRIANGLES,
+		static_cast<GLsizei>(
+			mesh.GetIndexCount()
+		),
+		GL_UNSIGNED_INT,
+		nullptr
+	);
+
+	glBindVertexArray(0);
+}
+
+
+void Renderer::DrawLines(
+	const Mesh& mesh,
+	const Shader& shader,
+	const Matrix4& mvp,
+	float line_width
+)
+{
+	shader.Use();
+
+	shader.SetMat4(
+		"uMVP",
+		mvp
+	);
+
+	mesh.Bind();
+
+	glLineWidth(
+		line_width
+	);
+
+	glDrawElements(
+		GL_LINES,
 		static_cast<GLsizei>(
 			mesh.GetIndexCount()
 		),
