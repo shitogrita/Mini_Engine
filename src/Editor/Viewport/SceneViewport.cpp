@@ -1423,6 +1423,5 @@ void SceneViewport::wheelEvent(
     UpdateCoordinatesLabel();
 
     update();
-
     event->accept();
 }
