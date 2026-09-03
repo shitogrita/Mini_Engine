@@ -27,4 +27,49 @@ public:
 									  const Vec3& scale);
 
 	static std::array<float, 16> GetColMajor(const Matrix4& matrix);
+
+	/**
+	 * @brief Вычисляет обратную матрицу аффинного преобразования.
+	 *
+	 * Обратная матрица позволяет выполнить преобразование
+	 * в противоположном направлении:
+	 *
+	 * Model:
+	 * Local Space -> World Space
+	 *
+	 * Inverse Model:
+	 * World Space -> Local Space
+	 *
+	 * @param matrix Исходная аффинная матрица.
+	 *
+	 * @return Обратная матрица преобразования.
+	 */
+	static Matrix4 InverseAffine (const Matrix4& matrix);
+
+	/**
+	 * @brief Преобразует точку при помощи матрицы.
+	 *
+	 * Для точки используется однородная координата w = 1,
+	 * поэтому на неё влияет перемещение объекта.
+	 *
+	 * @param matrix Матрица преобразования.
+	 * @param point Исходная точка.
+	 *
+	 * @return Преобразованная точка.
+	 */
+	static Vec3 TransformPoint (const Matrix4& matrix, const Vec3& point);
+
+	/**
+	 * @brief Преобразует направление при помощи матрицы.
+	 *
+	 * Для направления используется однородная координата w = 0,
+	 * поэтому перемещение объекта на него не влияет.
+	 *
+	 * @param matrix Матрица преобразования.
+	 * @param direction Исходное направление.
+	 *
+	 * @return Преобразованное направление.
+	 */
+	static Vec3 TransformDirection (const Matrix4& matrix, const Vec3& direction);
+
 };

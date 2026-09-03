@@ -6,36 +6,32 @@
 
 #include <memory>
 #include <string>
-#include <utility>
 
 
 /**
- * @brief Представляет отдельный объект, находящийся в сцене.
+ * @brief Объект, находящийся внутри Scene.
  *
- * SceneObject объединяет данные, которые относятся
- * к одному объекту сцены:
+ * SceneObject объединяет данные одного объекта сцены:
  *
- * - имя объекта;
- * - Transform — положение, поворот и масштаб;
- * - Mesh — геометрию, которую необходимо отрисовать;
- * - BoundingBox — границы геометрии объекта.
+ * - имя;
+ * - Transform;
+ * - Mesh;
+ * - локальный BoundingBox.
  *
- * Сам SceneObject не занимается отрисовкой.
- * Отрисовка выполняется Renderer.
- *
- * SceneObject также не хранит список других объектов.
- * Несколько SceneObject находятся внутри Scene.
+ * Сам объект не занимается рендерингом.
+ * Его данные используются SceneViewport и Renderer.
  */
 class SceneObject {
 public:
+
     /**
-     * @brief Создаёт объект сцены со значениями по умолчанию.
+     * @brief Создаёт пустой объект сцены.
      */
     SceneObject() = default;
 
 
     /**
-     * @brief Создаёт объект сцены с указанным именем.
+     * @brief Создаёт объект с указанным именем.
      *
      * @param name Имя объекта.
      */
@@ -45,7 +41,7 @@ public:
 
 
     /**
-     * @brief Создаёт объект сцены с именем и готовым Mesh.
+     * @brief Создаёт объект с именем и Mesh.
      *
      * @param name Имя объекта.
      * @param mesh Геометрия объекта.
@@ -58,10 +54,9 @@ public:
 
     /**
      * @brief Возвращает имя объекта.
-     *
-     * @return Имя SceneObject.
      */
-    const std::string& GetName() const;
+    const std::string&
+    GetName() const;
 
 
     /**
@@ -75,34 +70,24 @@ public:
 
 
     /**
-     * @brief Возвращает изменяемый Transform объекта.
+     * @brief Возвращает изменяемый Transform.
      *
-     * Этот вариант используется, когда необходимо изменить
-     * position, rotation или scale.
-     *
-     * @return Ссылка на Transform объекта.
+     * Используется Editor для изменения
+     * Position / Rotation / Scale.
      */
-    Transform& GetTransform();
+    Transform&
+    GetTransform();
 
 
     /**
-     * @brief Возвращает Transform объекта только для чтения.
-     *
-     * @return Константная ссылка на Transform объекта.
+     * @brief Возвращает Transform только для чтения.
      */
-    const Transform& GetTransform() const;
+    const Transform&
+    GetTransform() const;
 
 
     /**
-     * @brief Устанавливает геометрию объекта.
-     *
-     * Используется shared_ptr, потому что в дальнейшем
-     * несколько SceneObject смогут ссылаться на один и тот же Mesh.
-     *
-     * Это позволит не создавать одинаковую геометрию на GPU
-     * для каждого экземпляра одного объекта.
-     *
-     * @param mesh Геометрия объекта.
+     * @brief Устанавливает Mesh объекта.
      */
     void SetMesh(
         std::shared_ptr<Mesh> mesh
@@ -111,38 +96,29 @@ public:
 
     /**
      * @brief Возвращает Mesh объекта.
-     *
-     * @return shared_ptr на Mesh.
      */
-    std::shared_ptr<Mesh> GetMesh();
+    std::shared_ptr<Mesh>
+    GetMesh();
 
 
     /**
      * @brief Возвращает Mesh только для чтения.
-     *
-     * @return shared_ptr на константный Mesh.
      */
-    std::shared_ptr<const Mesh> GetMesh() const;
+    std::shared_ptr<const Mesh>
+    GetMesh() const;
 
 
     /**
-     * @brief Проверяет, содержит ли SceneObject геометрию.
-     *
-     * @return true, если Mesh существует.
+     * @brief Проверяет наличие Mesh.
      */
     bool HasMesh() const;
 
 
     /**
-     * @brief Устанавливает BoundingBox объекта.
+     * @brief Устанавливает локальный BoundingBox объекта.
      *
-     * Сейчас BoundingBox описывает исходную геометрию Mesh
-     * в локальных координатах модели.
-     *
-     * То есть position, rotation и scale объекта
-     * ещё не применены к этой коробке.
-     *
-     * @param bounding_box Границы геометрии объекта.
+     * BoundingBox хранится до применения Transform,
+     * то есть в Local Space Mesh.
      */
     void SetBoundingBox(
         const BoundingBox& bounding_box
@@ -150,19 +126,16 @@ public:
 
 
     /**
-     * @brief Возвращает BoundingBox объекта.
-     *
-     * В дальнейшем этот BoundingBox будет использоваться
-     * при выборе объектов мышью через проверку пересечения луча.
-     *
-     * @return BoundingBox объекта.
+     * @brief Возвращает локальный BoundingBox.
      */
-    const BoundingBox& GetBoundingBox() const;
+    const BoundingBox&
+    GetBoundingBox() const;
 
 
 private:
+
     /**
-     * @brief Имя объекта, отображаемое в Hierarchy.
+     * @brief Имя объекта в Hierarchy.
      */
     std::string name_{
         "SceneObject"
@@ -171,39 +144,19 @@ private:
 
     /**
      * @brief Пространственное преобразование объекта.
-     *
-     * Содержит:
-     * - position;
-     * - rotation;
-     * - scale.
      */
     Transform transform_{};
 
 
-    /*
-     * Геометрия, связанная с объектом.
-     *
-     * Используется shared_ptr, потому что в дальнейшем
-     * несколько SceneObject смогут использовать один Mesh.
-     *
-     * Например:
-     *
-     * Cube_1 ----\
-     *             -> один Mesh куба
-     * Cube_2 ----/
+    /**
+     * @brief Геометрия объекта.
      */
-    std::shared_ptr<Mesh> mesh_;
+    std::shared_ptr<Mesh>
+        mesh_;
 
 
-    /*
-     * Ограничивающая коробка исходной геометрии.
-     *
-     * BoundingBox пока хранится в локальных координатах модели.
-     *
-     * Позже он будет использоваться для:
-     * - выбора объекта мышью;
-     * - проверки попадания луча;
-     * - пространственных оптимизаций.
+    /**
+     * @brief AABB геометрии в Local Space.
      */
     BoundingBox bounding_box_{};
 };

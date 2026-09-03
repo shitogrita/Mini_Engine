@@ -4,6 +4,7 @@
 #include "Engine/Math/affine_transformation.h"
 #include "Engine/Math/projection.h"
 #include "Engine/Platform/OpenGL/OpenGLLoader.h"
+#include "Engine/Scene/BoundingBox.h"
 
 #include <QByteArray>
 #include <QFileInfo>
@@ -14,7 +15,9 @@
 #include <QWheelEvent>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -22,6 +25,53 @@
 
 namespace {
 
+/**
+ * @brief Вертикальный угол обзора Perspective-камеры.
+ *
+ * Значение должно совпадать с FOV,
+ * используемым при построении Projection Matrix.
+ */
+constexpr float kPerspectiveFovDegrees =
+    45.0f;
+
+
+/**
+ * @brief Ближняя плоскость отсечения.
+ */
+constexpr float kNearPlane =
+    0.1f;
+
+
+/**
+ * @brief Дальняя плоскость отсечения.
+ */
+constexpr float kFarPlane =
+    100.0f;
+
+
+/**
+ * @brief Число PI для перевода градусов в радианы.
+ */
+constexpr float kPi =
+    3.14159265358979323846f;
+
+
+/**
+ * @brief Минимальное значение,
+ * используемое при проверках float.
+ */
+constexpr float kVectorEpsilon =
+    0.000001f;
+
+
+/**
+ * @brief Возвращает OpenGL-функцию
+ * из текущего Qt OpenGL Context.
+ *
+ * Используется для инициализации GLAD,
+ * не подключая GLAD непосредственно
+ * внутрь SceneViewport.
+ */
 void* GetQtOpenGLProcAddress(
     const char* name
 )
@@ -43,6 +93,66 @@ void* GetQtOpenGLProcAddress(
     );
 }
 
+
+/**
+ * @brief Возвращает длину Vec3.
+ */
+float Length(
+    const Vec3& vector
+)
+{
+    return std::sqrt(
+        vector.x * vector.x +
+        vector.y * vector.y +
+        vector.z * vector.z
+    );
+}
+
+
+/**
+ * @brief Нормализует Vec3.
+ *
+ * Если длина практически равна нулю,
+ * возвращается нулевой вектор.
+ */
+Vec3 Normalize(
+    const Vec3& vector
+)
+{
+    const float length =
+        Length(vector);
+
+    if (length < kVectorEpsilon) {
+        return Vec3{};
+    }
+
+    return Vec3{
+        vector.x / length,
+        vector.y / length,
+        vector.z / length
+    };
+}
+
+
+/**
+ * @brief Возвращает расстояние между двумя точками.
+ */
+float Distance(
+    const Vec3& first,
+    const Vec3& second
+)
+{
+    const Vec3 difference{
+        first.x - second.x,
+        first.y - second.y,
+        first.z - second.z
+    };
+
+    return Length(
+        difference
+    );
+}
+
 } // namespace
 
 
@@ -51,14 +161,26 @@ SceneViewport::SceneViewport(
 )
     : QOpenGLWidget(parent)
 {
+    /*
+     * Viewport должен получать клавиатурный focus,
+     * чтобы WASD / QE работали после клика по Scene.
+     */
     setFocusPolicy(
         Qt::StrongFocus
     );
 
+    /*
+     * Позволяет получать mouseMoveEvent
+     * даже без зажатой кнопки мыши.
+     */
     setMouseTracking(true);
 
     CreateLayout();
 
+    /*
+     * Таймер используется для вычисления
+     * delta time движения Camera.
+     */
     input_clock_.start();
 
     input_timer_.setTimerType(
@@ -72,23 +194,33 @@ SceneViewport::SceneViewport(
         [this]()
         {
             TickInput();
+
             UpdateCoordinatesLabel();
+
             update();
         }
     );
 
+    /*
+     * Примерно 60 обновлений в секунду.
+     */
     input_timer_.start(16);
 }
 
 
 SceneViewport::~SceneViewport()
 {
+    /*
+     * OpenGL-ресурсы должны уничтожаться,
+     * пока соответствующий Context активен.
+     */
     if (context() != nullptr) {
         makeCurrent();
 
         scene_.Clear();
 
         grid_mesh_.reset();
+
         axis_x_mesh_.reset();
         axis_y_mesh_.reset();
         axis_z_mesh_.reset();
@@ -107,13 +239,19 @@ void SceneViewport::CreateLayout()
         400
     );
 
+
+    /*
+     * Верхняя строка Scene View.
+     */
     title_label_ =
         new QLabel(
             "Scene",
             this
         );
 
-    title_label_->setFixedHeight(34);
+    title_label_->setFixedHeight(
+        34
+    );
 
     title_label_->setAlignment(
         Qt::AlignVCenter |
@@ -138,6 +276,10 @@ void SceneViewport::CreateLayout()
     );
 
 
+    /*
+     * Сообщение, показываемое,
+     * пока ни одной модели нет.
+     */
     content_label_ =
         new QLabel(this);
 
@@ -160,6 +302,10 @@ void SceneViewport::CreateLayout()
     );
 
 
+    /*
+     * Панель информации о Camera
+     * и выбранном SceneObject.
+     */
     coordinates_label_ =
         new QLabel(this);
 
@@ -195,6 +341,10 @@ void SceneViewport::CreateLayout()
 
 void SceneViewport::initializeGL()
 {
+    /*
+     * Загружаем OpenGL-функции
+     * через текущий Qt OpenGL Context.
+     */
     if (!InitializeOpenGLLoader(
             &GetQtOpenGLProcAddress
         )) {
@@ -203,21 +353,45 @@ void SceneViewport::initializeGL()
         );
     }
 
+
     renderer_.Initialize();
 
+
+    /*
+     * Загружаем основной Shader.
+     */
     const std::filesystem::path shader_directory =
         MINI_ENGINE_SHADER_DIR;
 
     shader_ =
         std::make_unique<Shader>(
-            shader_directory / "basic.vert",
-            shader_directory / "basic.frag"
+            shader_directory /
+                "basic.vert",
+
+            shader_directory /
+                "basic.frag"
         );
 
+
+    /*
+     * Editor helpers:
+     *
+     * - Grid;
+     * - X axis;
+     * - Y axis;
+     * - Z axis.
+     */
     CreateEditorGrid();
 
-    gl_initialized_ = true;
 
+    gl_initialized_ =
+        true;
+
+
+    /*
+     * Если OBJ был открыт ещё до создания
+     * OpenGL Context, загружаем его сейчас.
+     */
     UploadPendingMesh();
 }
 
@@ -229,27 +403,54 @@ void SceneViewport::CreateEditorGrid()
             CreateGridMeshData()
         );
 
+
     axis_x_mesh_ =
         std::make_unique<Mesh>(
             CreateAxisMeshData(
-                Vec3{-10.0f, 0.0f, 0.0f},
-                Vec3{10.0f, 0.0f, 0.0f}
+                Vec3{
+                    -10.0f,
+                    0.0f,
+                    0.0f
+                },
+                Vec3{
+                    10.0f,
+                    0.0f,
+                    0.0f
+                }
             )
         );
+
 
     axis_y_mesh_ =
         std::make_unique<Mesh>(
             CreateAxisMeshData(
-                Vec3{0.0f, -10.0f, 0.0f},
-                Vec3{0.0f, 10.0f, 0.0f}
+                Vec3{
+                    0.0f,
+                    -10.0f,
+                    0.0f
+                },
+                Vec3{
+                    0.0f,
+                    10.0f,
+                    0.0f
+                }
             )
         );
+
 
     axis_z_mesh_ =
         std::make_unique<Mesh>(
             CreateAxisMeshData(
-                Vec3{0.0f, 0.0f, -10.0f},
-                Vec3{0.0f, 0.0f, 10.0f}
+                Vec3{
+                    0.0f,
+                    0.0f,
+                    -10.0f
+                },
+                Vec3{
+                    0.0f,
+                    0.0f,
+                    10.0f
+                }
             )
         );
 }
@@ -260,9 +461,20 @@ SceneViewport::CreateGridMeshData() const
 {
     ImportedMeshData data;
 
-    constexpr int half_grid = 10;
-    constexpr float step = 1.0f;
+    constexpr int half_grid =
+        10;
 
+    constexpr float step =
+        1.0f;
+
+
+    /*
+     * Строим Grid на плоскости XZ.
+     *
+     * Центральные линии не рисуем,
+     * потому что вместо них отдельно
+     * будут нарисованы оси X и Z.
+     */
     for (
         int index = -half_grid;
         index <= half_grid;
@@ -272,11 +484,19 @@ SceneViewport::CreateGridMeshData() const
             continue;
         }
 
+
         const float coordinate =
-            static_cast<float>(index) *
+            static_cast<float>(
+                index
+            ) *
             step;
 
+
+        /*
+         * Линия, параллельная Z.
+         */
         Vertex first_z{};
+
         first_z.position =
             Vec3{
                 coordinate,
@@ -284,7 +504,9 @@ SceneViewport::CreateGridMeshData() const
                 -half_grid * step
             };
 
+
         Vertex second_z{};
+
         second_z.position =
             Vec3{
                 coordinate,
@@ -292,10 +514,12 @@ SceneViewport::CreateGridMeshData() const
                 half_grid * step
             };
 
+
         const std::uint32_t first_index =
             static_cast<std::uint32_t>(
                 data.render_vertices.size()
             );
+
 
         data.render_vertices.push_back(
             first_z
@@ -304,6 +528,7 @@ SceneViewport::CreateGridMeshData() const
         data.render_vertices.push_back(
             second_z
         );
+
 
         data.render_indices.push_back(
             first_index
@@ -314,7 +539,11 @@ SceneViewport::CreateGridMeshData() const
         );
 
 
+        /*
+         * Линия, параллельная X.
+         */
         Vertex first_x{};
+
         first_x.position =
             Vec3{
                 -half_grid * step,
@@ -322,7 +551,9 @@ SceneViewport::CreateGridMeshData() const
                 coordinate
             };
 
+
         Vertex second_x{};
+
         second_x.position =
             Vec3{
                 half_grid * step,
@@ -330,10 +561,12 @@ SceneViewport::CreateGridMeshData() const
                 coordinate
             };
 
+
         const std::uint32_t second_index =
             static_cast<std::uint32_t>(
                 data.render_vertices.size()
             );
+
 
         data.render_vertices.push_back(
             first_x
@@ -343,6 +576,7 @@ SceneViewport::CreateGridMeshData() const
             second_x
         );
 
+
         data.render_indices.push_back(
             second_index
         );
@@ -351,6 +585,7 @@ SceneViewport::CreateGridMeshData() const
             second_index + 1
         );
     }
+
 
     return data;
 }
@@ -364,11 +599,18 @@ SceneViewport::CreateAxisMeshData(
 {
     ImportedMeshData data;
 
+
     Vertex first{};
-    first.position = start;
+
+    first.position =
+        start;
+
 
     Vertex second{};
-    second.position = end;
+
+    second.position =
+        end;
+
 
     data.render_vertices.push_back(
         first
@@ -378,8 +620,15 @@ SceneViewport::CreateAxisMeshData(
         second
     );
 
-    data.render_indices.push_back(0);
-    data.render_indices.push_back(1);
+
+    data.render_indices.push_back(
+        0
+    );
+
+    data.render_indices.push_back(
+        1
+    );
+
 
     return data;
 }
@@ -395,6 +644,7 @@ void SceneViewport::resizeGL(
         height
     );
 
+
     if (title_label_ != nullptr) {
         title_label_->setGeometry(
             0,
@@ -403,6 +653,7 @@ void SceneViewport::resizeGL(
             34
         );
     }
+
 
     if (content_label_ != nullptr) {
         content_label_->setGeometry(
@@ -416,6 +667,7 @@ void SceneViewport::resizeGL(
         );
     }
 
+
     if (coordinates_label_ != nullptr) {
         coordinates_label_->adjustSize();
 
@@ -423,7 +675,8 @@ void SceneViewport::resizeGL(
             std::max(
                 10,
                 width -
-                    coordinates_label_->width() -
+                    coordinates_label_->
+                        width() -
                     14
             ),
             48
@@ -438,38 +691,57 @@ void SceneViewport::paintGL()
         background_color_
     );
 
+
     if (!shader_) {
         return;
     }
 
+
     const Matrix4 view =
         camera_.GetViewMatrix();
 
+
     const float aspect =
         height() > 0
-            ? static_cast<float>(width()) /
-              static_cast<float>(height())
+            ? static_cast<float>(
+                  width()
+              ) /
+              static_cast<float>(
+                  height()
+              )
             : 1.0f;
+
 
     Matrix4 projection{};
 
+
+    /*
+     * Projection Matrix должна использовать
+     * те же параметры, что и CreateMouseRay().
+     *
+     * Иначе визуально объект будет находиться
+     * в одном месте, а Ray Picking —
+     * рассчитываться по другой геометрии камеры.
+     */
     if (
         projection_mode_ ==
         ProjectionMode::Perspective
     ) {
         projection =
             Projection::Perspective(
-                45.0f,
+                kPerspectiveFovDegrees,
                 aspect,
-                0.1f,
-                100.0f
+                kNearPlane,
+                kFarPlane
             );
     } else {
         const float half_height =
             orthographic_half_height_;
 
         const float half_width =
-            half_height * aspect;
+            half_height *
+            aspect;
+
 
         projection =
             Projection::Ortho(
@@ -477,8 +749,8 @@ void SceneViewport::paintGL()
                 half_width,
                 -half_height,
                 half_height,
-                0.1f,
-                100.0f
+                kNearPlane,
+                kFarPlane
             );
     }
 
@@ -491,6 +763,7 @@ void SceneViewport::paintGL()
 
 
     shader_->Use();
+
 
     shader_->SetInt(
         "uPointMode",
@@ -513,6 +786,9 @@ void SceneViewport::paintGL()
     );
 
 
+    /*
+     * Grid.
+     */
     if (grid_mesh_) {
         shader_->SetVec4(
             "uColor",
@@ -533,6 +809,9 @@ void SceneViewport::paintGL()
     }
 
 
+    /*
+     * Ось X.
+     */
     if (axis_x_mesh_) {
         shader_->SetVec4(
             "uColor",
@@ -553,6 +832,9 @@ void SceneViewport::paintGL()
     }
 
 
+    /*
+     * Ось Z.
+     */
     if (axis_z_mesh_) {
         shader_->SetVec4(
             "uColor",
@@ -573,6 +855,9 @@ void SceneViewport::paintGL()
     }
 
 
+    /*
+     * Ось Y.
+     */
     if (axis_y_mesh_) {
         shader_->SetVec4(
             "uColor",
@@ -593,6 +878,9 @@ void SceneViewport::paintGL()
     }
 
 
+    /*
+     * Основной цвет SceneObject.
+     */
     shader_->SetVec4(
         "uColor",
         Vec4{
@@ -604,6 +892,12 @@ void SceneViewport::paintGL()
     );
 
 
+    /*
+     * Каждый SceneObject имеет собственный Transform,
+     * поэтому для него строится отдельная MVP Matrix:
+     *
+     * MVP = Projection * View * Model
+     */
     for (
         const std::shared_ptr<SceneObject>& object :
         scene_.GetObjects()
@@ -612,16 +906,21 @@ void SceneViewport::paintGL()
             continue;
         }
 
+
         const std::shared_ptr<const Mesh> mesh =
             object->GetMesh();
+
 
         if (!mesh) {
             continue;
         }
 
+
         const Matrix4 model =
-            object->GetTransform()
-                .GetModelMatrix();
+            object->
+                GetTransform().
+                GetModelMatrix();
+
 
         const Matrix4 view_model =
             AffineTransformation::Multiply4(
@@ -629,11 +928,13 @@ void SceneViewport::paintGL()
                 model
             );
 
+
         const Matrix4 mvp =
             AffineTransformation::Multiply4(
                 projection,
                 view_model
             );
+
 
         renderer_.Draw(
             *mesh,
@@ -652,16 +953,20 @@ void SceneViewport::SetDisplayedFile(
         file_path
     );
 
+
     current_file_path_ =
         file_path;
 
+
     ImportedMeshData mesh_data;
+
 
     const bool parsed =
         ObjParser::Parse(
             file_path.toStdString(),
             mesh_data
         );
+
 
     if (!parsed) {
         content_label_->show();
@@ -676,12 +981,25 @@ void SceneViewport::SetDisplayedFile(
         return;
     }
 
+
+    /*
+     * Рассчитываем стартовый Transform
+     * импортированной модели.
+     */
     CalculateModelFit(
         mesh_data
     );
 
+
+    /*
+     * Данные временно остаются на CPU,
+     * пока не появится активный OpenGL Context.
+     */
     pending_mesh_data_ =
-        std::move(mesh_data);
+        std::move(
+            mesh_data
+        );
+
 
     if (gl_initialized_) {
         makeCurrent();
@@ -691,11 +1009,13 @@ void SceneViewport::SetDisplayedFile(
         doneCurrent();
     }
 
+
     content_label_->hide();
 
     setFocus();
 
     UpdateProjectionTitle();
+
     UpdateCoordinatesLabel();
 
     update();
@@ -718,12 +1038,57 @@ void SceneViewport::SetSelectedObject(
     std::shared_ptr<SceneObject> object
 )
 {
+    /*
+     * Этот метод может быть вызван
+     * не только самим viewport,
+     * но и, например, HierarchyPanel.
+     *
+     * Поэтому callback здесь намеренно
+     * не вызывается — иначе легко получить
+     * цикл:
+     *
+     * Hierarchy -> Viewport -> Hierarchy -> ...
+     */
     selected_object_ =
-        std::move(object);
+        std::move(
+            object
+        );
+
 
     UpdateCoordinatesLabel();
 
     update();
+}
+
+
+std::shared_ptr<SceneObject>
+SceneViewport::GetSelectedObject() const
+{
+    return selected_object_;
+}
+
+
+void SceneViewport::SetSelectionChangedCallback(
+    SelectionChangedCallback callback
+)
+{
+    selection_changed_callback_ =
+        std::move(
+            callback
+        );
+}
+
+
+void SceneViewport::NotifySelectionChanged()
+{
+    if (!selection_changed_callback_) {
+        return;
+    }
+
+
+    selection_changed_callback_(
+        selected_object_
+    );
 }
 
 
@@ -733,6 +1098,7 @@ void SceneViewport::SetProjectionMode(
 {
     projection_mode_ =
         mode;
+
 
     UpdateProjectionTitle();
 
@@ -753,24 +1119,61 @@ void SceneViewport::UploadPendingMesh()
         return;
     }
 
+
+    /*
+     * BoundingBox строится на CPU
+     * из исходных координат Mesh.
+     *
+     * Важно:
+     *
+     * BoundingBox остаётся в Local Space.
+     *
+     * Transform SceneObject сюда
+     * специально не применяется.
+     */
+    const BoundingBox bounding_box =
+        BoundingBox::FromPoints(
+            pending_mesh_data_->
+                positions
+        );
+
+
+    /*
+     * После этого геометрия передаётся на GPU.
+     */
     auto mesh =
         std::make_shared<Mesh>(
             *pending_mesh_data_
         );
 
+
     const QFileInfo file_info(
         current_file_path_
     );
 
+
     auto object =
         std::make_shared<SceneObject>(
-            file_info.completeBaseName()
-                .toStdString(),
+            file_info.
+                completeBaseName().
+                toStdString(),
+
             std::move(mesh)
         );
 
+
+    /*
+     * BoundingBox относится именно
+     * к этому SceneObject.
+     */
+    object->SetBoundingBox(
+        bounding_box
+    );
+
+
     Transform& transform =
         object->GetTransform();
+
 
     transform.position =
         model_position_;
@@ -783,14 +1186,15 @@ void SceneViewport::UploadPendingMesh()
 
 
     /*
-     * Находим стартовую позицию только
-     * для НОВОГО объекта.
+     * Находим стартовую позицию
+     * только для нового SceneObject.
      *
-     * Уже существующие SceneObject
-     * вообще не изменяются.
+     * Уже существующие объекты
+     * при импорте не передвигаются.
      */
     const Vec3 spawn_position =
         FindSpawnPosition();
+
 
     transform.position.x +=
         spawn_position.x;
@@ -803,8 +1207,11 @@ void SceneViewport::UploadPendingMesh()
 
 
     scene_.AddObject(
-        std::move(object)
+        std::move(
+            object
+        )
     );
+
 
     UpdateProjectionTitle();
 
@@ -817,8 +1224,12 @@ Vec3 SceneViewport::FindSpawnPosition() const
     constexpr float spacing =
         0.9f;
 
+
     const std::size_t object_count =
-        scene_.GetObjects().size();
+        scene_.
+            GetObjects().
+            size();
+
 
     if (object_count == 0) {
         return Vec3{
@@ -828,13 +1239,27 @@ Vec3 SceneViewport::FindSpawnPosition() const
         };
     }
 
+
+    /*
+     * Последовательность:
+     *
+     * 0
+     * +0.9
+     * -0.9
+     * +1.8
+     * -1.8
+     * ...
+     */
     const std::size_t pair_index =
-        (object_count + 1) / 2;
+        (object_count + 1) /
+        2;
+
 
     const float direction =
         object_count % 2 == 1
             ? 1.0f
             : -1.0f;
+
 
     return Vec3{
         direction *
@@ -855,20 +1280,27 @@ void SceneViewport::ArrangeSceneObjects()
     const auto& objects =
         scene_.GetObjects();
 
+
     if (objects.empty()) {
         return;
     }
 
+
     constexpr float spacing =
         0.9f;
+
 
     const float total_width =
         static_cast<float>(
             objects.size() - 1
-        ) * spacing;
+        ) *
+        spacing;
+
 
     const float start_x =
-        -total_width * 0.5f;
+        -total_width *
+        0.5f;
+
 
     for (
         std::size_t index = 0;
@@ -879,9 +1311,11 @@ void SceneViewport::ArrangeSceneObjects()
             continue;
         }
 
+
         Transform& transform =
             objects[index]->
                 GetTransform();
+
 
         transform.position.x =
             start_x +
@@ -901,6 +1335,7 @@ void SceneViewport::CalculateModelFit(
         model_position_ =
             Vec3{};
 
+
         model_scale_ =
             Vec3{
                 1.0f,
@@ -908,15 +1343,22 @@ void SceneViewport::CalculateModelFit(
                 1.0f
             };
 
+
         return;
     }
+
 
     Vec3 minimum =
         mesh_data.positions.front();
 
+
     Vec3 maximum =
         mesh_data.positions.front();
 
+
+    /*
+     * Находим AABB исходной модели.
+     */
     for (
         const Vec3& position :
         mesh_data.positions
@@ -939,6 +1381,7 @@ void SceneViewport::CalculateModelFit(
                 position.z
             );
 
+
         maximum.x =
             std::max(
                 maximum.x,
@@ -958,6 +1401,10 @@ void SceneViewport::CalculateModelFit(
             );
     }
 
+
+    /*
+     * Центр модели.
+     */
     const Vec3 center{
         (minimum.x + maximum.x) *
             0.5f,
@@ -969,14 +1416,21 @@ void SceneViewport::CalculateModelFit(
             0.5f
     };
 
+
     const float size_x =
-        maximum.x - minimum.x;
+        maximum.x -
+        minimum.x;
+
 
     const float size_y =
-        maximum.y - minimum.y;
+        maximum.y -
+        minimum.y;
+
 
     const float size_z =
-        maximum.z - minimum.z;
+        maximum.z -
+        minimum.z;
+
 
     const float maximum_size =
         std::max({
@@ -985,21 +1439,41 @@ void SceneViewport::CalculateModelFit(
             size_z
         });
 
+
     float fit_scale =
         1.0f;
 
-    if (maximum_size > 0.000001f) {
+
+    /*
+     * Масштабируем модель приблизительно
+     * до размера 0.6 мировых единиц.
+     */
+    if (
+        maximum_size >
+        kVectorEpsilon
+    ) {
         fit_scale =
             0.6f /
             maximum_size;
     }
 
+
+    /*
+     * После масштабирования центр модели
+     * перемещается в начало координат.
+     */
     model_position_ =
         Vec3{
-            -center.x * fit_scale,
-            -center.y * fit_scale,
-            -center.z * fit_scale
+            -center.x *
+                fit_scale,
+
+            -center.y *
+                fit_scale,
+
+            -center.z *
+                fit_scale
         };
+
 
     model_rotation_ =
         Vec3{
@@ -1007,6 +1481,7 @@ void SceneViewport::CalculateModelFit(
             0.0f,
             0.0f
         };
+
 
     model_scale_ =
         Vec3{
@@ -1025,18 +1500,27 @@ void SceneViewport::TickInput()
         ) /
         1000.0f;
 
+
+    /*
+     * Ограничиваем слишком большой delta time,
+     * например после остановки приложения
+     * в debugger.
+     */
     delta_time =
         std::min(
             delta_time,
             0.05f
         );
 
+
     constexpr float move_speed =
         2.0f;
+
 
     const float distance =
         move_speed *
         delta_time;
+
 
     if (move_forward_) {
         camera_.MoveForward(
@@ -1044,11 +1528,13 @@ void SceneViewport::TickInput()
         );
     }
 
+
     if (move_backward_) {
         camera_.MoveBackward(
             distance
         );
     }
+
 
     if (move_left_) {
         camera_.MoveLeft(
@@ -1056,17 +1542,20 @@ void SceneViewport::TickInput()
         );
     }
 
+
     if (move_right_) {
         camera_.MoveRight(
             distance
         );
     }
 
+
     if (move_up_) {
         camera_.MoveUp(
             distance
         );
     }
+
 
     if (move_down_) {
         camera_.MoveDown(
@@ -1082,11 +1571,13 @@ void SceneViewport::UpdateProjectionTitle()
         return;
     }
 
+
     const QString projection_name =
         projection_mode_ ==
         ProjectionMode::Perspective
             ? "Perspective"
             : "Orthographic";
+
 
     title_label_->setText(
         QString(
@@ -1096,7 +1587,9 @@ void SceneViewport::UpdateProjectionTitle()
             projection_name
         )
         .arg(
-            scene_.GetObjects().size()
+            scene_.
+                GetObjects().
+                size()
         )
     );
 }
@@ -1108,8 +1601,10 @@ void SceneViewport::UpdateCoordinatesLabel()
         return;
     }
 
+
     const Vec3& camera_position =
         camera_.GetPosition();
+
 
     QString text =
         QString(
@@ -1137,10 +1632,16 @@ void SceneViewport::UpdateCoordinatesLabel()
             3
         );
 
+
+    /*
+     * Если объект выбран,
+     * дополнительно показываем его Position.
+     */
     if (selected_object_) {
         const Transform& transform =
             selected_object_->
                 GetTransform();
+
 
         text +=
             QString(
@@ -1176,11 +1677,14 @@ void SceneViewport::UpdateCoordinatesLabel()
             );
     }
 
+
     coordinates_label_->setText(
         text
     );
 
+
     coordinates_label_->adjustSize();
+
 
     coordinates_label_->move(
         std::max(
@@ -1195,6 +1699,445 @@ void SceneViewport::UpdateCoordinatesLabel()
 }
 
 
+Ray SceneViewport::CreateMouseRay(
+    const QPointF& mouse_position
+) const
+{
+    /*
+     * Без реального размера viewport
+     * построить корректный Ray невозможно.
+     */
+    if (
+        width() <= 0 ||
+        height() <= 0
+    ) {
+        return Ray{};
+    }
+
+
+    /*
+     * Qt использует экранные координаты:
+     *
+     * (0,0) --------> X
+     *   |
+     *   |
+     *   v
+     *   Y
+     *
+     * Для NDC нужны координаты:
+     *
+     * X: [-1, +1]
+     * Y: [-1, +1]
+     *
+     * причём +Y направлен вверх.
+     */
+    const float ndc_x =
+        2.0f *
+            static_cast<float>(
+                mouse_position.x()
+            ) /
+            static_cast<float>(
+                width()
+            ) -
+        1.0f;
+
+
+    const float ndc_y =
+        1.0f -
+        2.0f *
+            static_cast<float>(
+                mouse_position.y()
+            ) /
+            static_cast<float>(
+                height()
+            );
+
+
+    const float aspect =
+        static_cast<float>(
+            width()
+        ) /
+        static_cast<float>(
+            height()
+        );
+
+
+    /*
+     * Базис Camera в World Space.
+     */
+    const Vec3 forward =
+        camera_.GetForward();
+
+
+    const Vec3 right =
+        camera_.GetRight();
+
+
+    const Vec3 up =
+        camera_.GetUp();
+
+
+    /*
+     * Perspective и Orthographic создают Ray
+     * по-разному.
+     */
+    if (
+        projection_mode_ ==
+        ProjectionMode::Perspective
+    ) {
+        /*
+         * У Perspective все лучи начинаются
+         * в позиции Camera.
+         *
+         * Отличается только direction.
+         */
+        const float half_fov_radians =
+            kPerspectiveFovDegrees *
+            0.5f *
+            kPi /
+            180.0f;
+
+
+        const float half_height =
+            std::tan(
+                half_fov_radians
+            );
+
+
+        const float half_width =
+            half_height *
+            aspect;
+
+
+        Vec3 direction{
+            forward.x +
+                right.x *
+                    ndc_x *
+                    half_width +
+                up.x *
+                    ndc_y *
+                    half_height,
+
+            forward.y +
+                right.y *
+                    ndc_x *
+                    half_width +
+                up.y *
+                    ndc_y *
+                    half_height,
+
+            forward.z +
+                right.z *
+                    ndc_x *
+                    half_width +
+                up.z *
+                    ndc_y *
+                    half_height
+        };
+
+
+        direction =
+            Normalize(
+                direction
+            );
+
+
+        return Ray{
+            camera_.GetPosition(),
+            direction
+        };
+    }
+
+
+    /*
+     * Orthographic:
+     *
+     * все лучи параллельны друг другу,
+     * но имеют разное начало.
+     */
+    const float half_height =
+        orthographic_half_height_;
+
+
+    const float half_width =
+        half_height *
+        aspect;
+
+
+    const Vec3 camera_position =
+        camera_.GetPosition();
+
+
+    const Vec3 origin{
+        camera_position.x +
+            right.x *
+                ndc_x *
+                half_width +
+            up.x *
+                ndc_y *
+                half_height,
+
+        camera_position.y +
+            right.y *
+                ndc_x *
+                half_width +
+            up.y *
+                ndc_y *
+                half_height,
+
+        camera_position.z +
+            right.z *
+                ndc_x *
+                half_width +
+            up.z *
+                ndc_y *
+                half_height
+    };
+
+
+    return Ray{
+        origin,
+        Normalize(
+            forward
+        )
+    };
+}
+
+
+void SceneViewport::SelectObjectAt(
+    const QPointF& mouse_position
+)
+{
+    /*
+     * Создаём Ray в World Space.
+     */
+    const Ray world_ray =
+        CreateMouseRay(
+            mouse_position
+        );
+
+
+    /*
+     * Пока подходящего объекта нет.
+     */
+    std::shared_ptr<SceneObject>
+        nearest_object;
+
+
+    /*
+     * Храним расстояние до ближайшего
+     * пересечения в World Space.
+     */
+    float nearest_world_distance =
+        std::numeric_limits<float>::
+            infinity();
+
+
+    /*
+     * Проверяем каждый SceneObject.
+     */
+    for (
+        const std::shared_ptr<SceneObject>& object :
+        scene_.GetObjects()
+    ) {
+        if (!object) {
+            continue;
+        }
+
+
+        if (!object->HasMesh()) {
+            continue;
+        }
+
+
+        const Transform& transform =
+            object->GetTransform();
+
+
+        /*
+         * Если хотя бы один компонент Scale равен нулю,
+         * Model Matrix необратима.
+         *
+         * Такой объект нельзя корректно перевести
+         * из World Space обратно в Local Space.
+         */
+        if (
+            std::abs(
+                transform.scale.x
+            ) <
+                kVectorEpsilon ||
+
+            std::abs(
+                transform.scale.y
+            ) <
+                kVectorEpsilon ||
+
+            std::abs(
+                transform.scale.z
+            ) <
+                kVectorEpsilon
+        ) {
+            continue;
+        }
+
+
+        /*
+         * Model Matrix:
+         *
+         * Local -> World
+         */
+        const Matrix4 model =
+            transform.
+                GetModelMatrix();
+
+
+        /*
+         * Inverse Model Matrix:
+         *
+         * World -> Local
+         */
+        const Matrix4 inverse_model =
+            AffineTransformation::
+                InverseAffine(
+                    model
+                );
+
+
+        /*
+         * BoundingBox хранится
+         * в Local Space объекта.
+         *
+         * Поэтому вместо преобразования Box
+         * переводим сам Ray в Local Space.
+         */
+        Ray local_ray{};
+
+
+        /*
+         * origin — это точка,
+         * поэтому translation применяется.
+         */
+        local_ray.origin =
+            AffineTransformation::
+                TransformPoint(
+                    inverse_model,
+                    world_ray.origin
+                );
+
+
+        /*
+         * direction — это направление,
+         * поэтому translation НЕ применяется.
+         *
+         * ВАЖНО:
+         *
+         * Здесь специально НЕ нормализуем
+         * local_ray.direction.
+         *
+         * При наличии Scale длина направления
+         * изменяется. Это нормально и сохраняет
+         * параметризацию Ray после аффинного
+         * преобразования.
+         */
+        local_ray.direction =
+            AffineTransformation::
+                TransformDirection(
+                    inverse_model,
+                    world_ray.direction
+                );
+
+
+        float local_distance =
+            0.0f;
+
+
+        /*
+         * Broad Phase:
+         *
+         * проверяем пересечение не со всеми
+         * треугольниками Mesh, а с его AABB.
+         */
+        const bool intersects =
+            local_ray.Intersects(
+                object->
+                    GetBoundingBox(),
+
+                local_distance
+            );
+
+
+        if (!intersects) {
+            continue;
+        }
+
+
+        /*
+         * Получаем точку попадания
+         * внутри Local Space.
+         */
+        const Vec3 local_hit_point =
+            local_ray.GetPoint(
+                local_distance
+            );
+
+
+        /*
+         * Переводим точку попадания
+         * обратно в World Space.
+         */
+        const Vec3 world_hit_point =
+            AffineTransformation::
+                TransformPoint(
+                    model,
+                    local_hit_point
+                );
+
+
+        /*
+         * Теперь расстояние можно честно
+         * сравнивать между разными объектами,
+         * даже если у них различный Scale.
+         */
+        const float world_distance =
+            Distance(
+                world_ray.origin,
+                world_hit_point
+            );
+
+
+        if (
+            world_distance <
+            nearest_world_distance
+        ) {
+            nearest_world_distance =
+                world_distance;
+
+            nearest_object =
+                object;
+        }
+    }
+
+
+    /*
+     * Если ни один BoundingBox не пересечён,
+     * nearest_object останется nullptr,
+     * то есть клик по пустому месту
+     * снимает selection.
+     */
+    selected_object_ =
+        std::move(
+            nearest_object
+        );
+
+
+    UpdateCoordinatesLabel();
+
+    NotifySelectionChanged();
+
+    update();
+}
+
+
 void SceneViewport::keyPressEvent(
     QKeyEvent* event
 )
@@ -1203,48 +2146,67 @@ void SceneViewport::keyPressEvent(
         return;
     }
 
+
     switch (event->key()) {
         case Qt::Key_W:
-            move_forward_ = true;
+            move_forward_ =
+                true;
             break;
+
 
         case Qt::Key_S:
-            move_backward_ = true;
+            move_backward_ =
+                true;
             break;
+
 
         case Qt::Key_A:
-            move_left_ = true;
+            move_left_ =
+                true;
             break;
+
 
         case Qt::Key_D:
-            move_right_ = true;
+            move_right_ =
+                true;
             break;
+
 
         case Qt::Key_E:
-            move_up_ = true;
+            move_up_ =
+                true;
             break;
 
+
         case Qt::Key_Q:
-            move_down_ = true;
+            move_down_ =
+                true;
             break;
+
 
         case Qt::Key_1:
         case Qt::Key_P:
             SetProjectionMode(
-                ProjectionMode::Perspective
+                ProjectionMode::
+                    Perspective
             );
             break;
+
 
         case Qt::Key_2:
         case Qt::Key_O:
             SetProjectionMode(
-                ProjectionMode::Orthographic
+                ProjectionMode::
+                    Orthographic
             );
             break;
 
+
         default:
             QOpenGLWidget::
-                keyPressEvent(event);
+                keyPressEvent(
+                    event
+                );
             break;
     }
 }
@@ -1258,34 +2220,49 @@ void SceneViewport::keyReleaseEvent(
         return;
     }
 
+
     switch (event->key()) {
         case Qt::Key_W:
-            move_forward_ = false;
+            move_forward_ =
+                false;
             break;
+
 
         case Qt::Key_S:
-            move_backward_ = false;
+            move_backward_ =
+                false;
             break;
+
 
         case Qt::Key_A:
-            move_left_ = false;
+            move_left_ =
+                false;
             break;
+
 
         case Qt::Key_D:
-            move_right_ = false;
+            move_right_ =
+                false;
             break;
+
 
         case Qt::Key_E:
-            move_up_ = false;
+            move_up_ =
+                false;
             break;
 
+
         case Qt::Key_Q:
-            move_down_ = false;
+            move_down_ =
+                false;
             break;
+
 
         default:
             QOpenGLWidget::
-                keyReleaseEvent(event);
+                keyReleaseEvent(
+                    event
+                );
             break;
     }
 }
@@ -1297,22 +2274,60 @@ void SceneViewport::mousePressEvent(
 {
     setFocus();
 
+
+    /*
+     * Alt + ЛКМ:
+     *
+     * управление поворотом Camera.
+     */
     if (
         event->button() ==
-        Qt::LeftButton
+            Qt::LeftButton &&
+
+        event->
+            modifiers().
+            testFlag(
+                Qt::AltModifier
+            )
     ) {
         pointer_look_active_ =
             true;
 
+
         last_pointer_position_ =
             event->position();
 
+
         event->accept();
+
         return;
     }
 
+
+    /*
+     * Обычный ЛКМ:
+     *
+     * Ray Picking SceneObject.
+     */
+    if (
+        event->button() ==
+        Qt::LeftButton
+    ) {
+        SelectObjectAt(
+            event->position()
+        );
+
+
+        event->accept();
+
+        return;
+    }
+
+
     QOpenGLWidget::
-        mousePressEvent(event);
+        mousePressEvent(
+            event
+        );
 }
 
 
@@ -1320,6 +2335,10 @@ void SceneViewport::mouseReleaseEvent(
     QMouseEvent* event
 )
 {
+    /*
+     * Останавливаем вращение Camera,
+     * если пользователь отпустил ЛКМ.
+     */
     if (
         event->button() ==
         Qt::LeftButton
@@ -1327,12 +2346,17 @@ void SceneViewport::mouseReleaseEvent(
         pointer_look_active_ =
             false;
 
+
         event->accept();
+
         return;
     }
 
+
     QOpenGLWidget::
-        mouseReleaseEvent(event);
+        mouseReleaseEvent(
+            event
+        );
 }
 
 
@@ -1340,39 +2364,62 @@ void SceneViewport::mouseMoveEvent(
     QMouseEvent* event
 )
 {
+    /*
+     * Обычное перемещение мыши
+     * не вращает Camera.
+     */
     if (!pointer_look_active_) {
         QOpenGLWidget::
-            mouseMoveEvent(event);
+            mouseMoveEvent(
+                event
+            );
 
         return;
     }
 
+
     const QPointF current_position =
         event->position();
+
 
     const QPointF delta =
         current_position -
         last_pointer_position_;
 
+
     last_pointer_position_ =
         current_position;
+
 
     constexpr float look_sensitivity =
         0.18f;
 
+
+    /*
+     * По X изменяется Yaw.
+     * По Y изменяется Pitch.
+     *
+     * Знак Y инвертируется,
+     * потому что экранная ось Qt
+     * направлена вниз.
+     */
     camera_.Rotate(
         static_cast<float>(
             delta.x()
-        ) * look_sensitivity,
+        ) *
+            look_sensitivity,
 
         static_cast<float>(
             -delta.y()
-        ) * look_sensitivity
+        ) *
+            look_sensitivity
     );
+
 
     UpdateCoordinatesLabel();
 
     update();
+
 
     event->accept();
 }
@@ -1382,35 +2429,74 @@ void SceneViewport::wheelEvent(
     QWheelEvent* event
 )
 {
-    float scroll_y = 0.0f;
+    float scroll_y =
+        0.0f;
 
-    if (!event->pixelDelta().isNull()) {
+
+    /*
+     * Trackpad обычно сообщает pixelDelta.
+     */
+    if (
+        !event->
+            pixelDelta().
+            isNull()
+    ) {
         scroll_y =
             static_cast<float>(
-                event->pixelDelta().y()
+                event->
+                    pixelDelta().
+                    y()
             );
 
-        scroll_y *= 0.006f;
+
+        scroll_y *=
+            0.006f;
     } else {
+        /*
+         * Обычное колесо мыши
+         * обычно сообщает angleDelta.
+         */
         scroll_y =
             static_cast<float>(
-                event->angleDelta().y()
+                event->
+                    angleDelta().
+                    y()
             ) /
             120.0f;
 
-        scroll_y *= 0.25f;
+
+        scroll_y *=
+            0.25f;
     }
+
 
     if (
         projection_mode_ ==
         ProjectionMode::Perspective
     ) {
+        /*
+         * Perspective:
+         *
+         * колесо двигает Camera
+         * вдоль Forward.
+         */
         camera_.MoveForward(
             scroll_y
         );
     } else {
+        /*
+         * Orthographic:
+         *
+         * Camera не обязана физически
+         * приближаться к сцене.
+         *
+         * Вместо этого меняется размер
+         * ортографической области.
+         */
         orthographic_half_height_ -=
-            scroll_y * 0.5f;
+            scroll_y *
+            0.5f;
+
 
         orthographic_half_height_ =
             std::clamp(
@@ -1420,8 +2506,10 @@ void SceneViewport::wheelEvent(
             );
     }
 
+
     UpdateCoordinatesLabel();
 
     update();
+
     event->accept();
 }

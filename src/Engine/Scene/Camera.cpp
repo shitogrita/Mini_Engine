@@ -260,3 +260,28 @@ Vec3 Camera::GetRightDirection() const
         )
     );
 }
+
+Vec3 Camera::GetForward() const {
+    return GetForwardDirection();
+}
+
+
+Vec3 Camera::GetRight() const {
+    return GetRightDirection();
+}
+
+
+Vec3 Camera::GetUp() const {
+    const Vec3 right =
+        GetRightDirection();
+
+    const Vec3 forward =
+        GetForwardDirection();
+
+    return Normalize(
+        Cross(
+            right,
+            forward
+        )
+    );
+}

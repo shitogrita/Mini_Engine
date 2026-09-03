@@ -2,39 +2,173 @@
 
 #include "../Math/matrix_types.h"
 
+/**
+ * @brief Представляет камеру трёхмерной сцены.
+ *
+ * Камера хранит своё положение и ориентацию,
+ * заданную углами yaw и pitch.
+ *
+ * На основе этих данных камера позволяет:
+ * - перемещаться в пространстве;
+ * - изменять направление взгляда;
+ * - получать базис камеры;
+ * - строить View Matrix для преобразования
+ *   мировых координат в пространство камеры.
+ */
 class Camera {
 public:
-	void MoveForward(float distance);
-	void MoveBackward(float distance);
-	void MoveLeft(float distance);
-	void MoveRight(float distance);
-	void MoveUp(float distance);
-	void MoveDown(float distance);
 
-	void Rotate(
-		float yaw_delta_degrees,
-		float pitch_delta_degrees
-	);
+    /**
+     * @brief Перемещает камеру вперёд относительно направления взгляда.
+     *
+     * @param distance Расстояние перемещения.
+     */
+    void MoveForward(float distance);
 
-	Matrix4 GetViewMatrix() const;
+    /**
+     * @brief Перемещает камеру назад относительно направления взгляда.
+     *
+     * @param distance Расстояние перемещения.
+     */
+    void MoveBackward(float distance);
 
-	const Vec3& GetPosition() const;
+    /**
+     * @brief Перемещает камеру влево относительно её ориентации.
+     *
+     * @param distance Расстояние перемещения.
+     */
+    void MoveLeft(float distance);
 
-	float GetYaw() const;
-	float GetPitch() const;
+    /**
+     * @brief Перемещает камеру вправо относительно её ориентации.
+     *
+     * @param distance Расстояние перемещения.
+     */
+    void MoveRight(float distance);
 
+    /**
+     * @brief Перемещает камеру вверх вдоль глобальной оси Y.
+     *
+     * @param distance Расстояние перемещения.
+     */
+    void MoveUp(float distance);
+
+    /**
+     * @brief Перемещает камеру вниз вдоль глобальной оси Y.
+     *
+     * @param distance Расстояние перемещения.
+     */
+    void MoveDown(float distance);
+
+    /**
+     * @brief Изменяет ориентацию камеры.
+     *
+     * @param yaw_delta_degrees Изменение горизонтального угла в градусах.
+     * @param pitch_delta_degrees Изменение вертикального угла в градусах.
+     */
+    void Rotate(
+        float yaw_delta_degrees,
+        float pitch_delta_degrees
+    );
+
+    /**
+     * @brief Возвращает матрицу вида камеры.
+     *
+     * View Matrix преобразует координаты объектов
+     * из мирового пространства в пространство камеры.
+     *
+     * @return Матрица вида камеры.
+     */
+    Matrix4 GetViewMatrix() const;
+
+    /**
+     * @brief Возвращает текущую позицию камеры.
+     *
+     * @return Ссылка на позицию камеры в мировом пространстве.
+     */
+    const Vec3& GetPosition() const;
+
+    /**
+     * @brief Возвращает текущий горизонтальный угол камеры.
+     *
+     * @return Угол yaw в градусах.
+     */
+    float GetYaw() const;
+
+    /**
+     * @brief Возвращает текущий вертикальный угол камеры.
+     *
+     * @return Угол pitch в градусах.
+     */
+    float GetPitch() const;
+
+    /**
+     * @brief Возвращает направление взгляда камеры.
+     *
+     * Возвращаемый вектор нормализован,
+     * то есть имеет длину 1.
+     *
+     * @return Направление камеры вперёд.
+     */
+    Vec3 GetForward() const;
+
+    /**
+     * @brief Возвращает направление вправо относительно камеры.
+     *
+     * Вектор перпендикулярен направлению взгляда
+     * и используется для бокового перемещения камеры.
+     *
+     * @return Направление камеры вправо.
+     */
+    Vec3 GetRight() const;
+
+    /**
+     * @brief Возвращает направление вверх относительно камеры.
+     *
+     * Вектор вычисляется на основе направлений
+     * Right и Forward и является частью базиса камеры.
+     *
+     * @return Направление камеры вверх.
+     */
+    Vec3 GetUp() const;
 
 private:
-	Vec3 GetForwardDirection() const;
-	Vec3 GetRightDirection() const;
 
-private:
+    /**
+     * @brief Вычисляет нормализованное направление взгляда камеры.
+     *
+     * Направление строится на основе углов yaw и pitch.
+     *
+     * @return Направление камеры вперёд.
+     */
+    Vec3 GetForwardDirection() const;
 
-	float yaw_degrees_ = -90.0f;;  // поворот влево/вправо
-	float pitch_degrees_ = 0.0f;; // поворот вверх/вниз
-	Vec3 position_{
-		0.0f,
-		0.0f,
-		3.0f
-	};
+    /**
+     * @brief Вычисляет нормализованное направление вправо.
+     *
+     * Направление получается через векторное произведение
+     * направления взгляда и глобального направления вверх.
+     *
+     * @return Направление камеры вправо.
+     */
+    Vec3 GetRightDirection() const;
+
+    /**
+     * @brief Горизонтальный угол поворота камеры в градусах.
+     */
+    float yaw_degrees_ = -90.0f;
+
+    /**
+     * @brief Вертикальный угол поворота камеры в градусах.
+     */
+    float pitch_degrees_ = 0.0f;
+
+    /**
+     * @brief Позиция камеры в мировом пространстве.
+     */
+    Vec3 position_{
+        0.0f,
+        0.0f,
+        3.0f
+    };
 };
