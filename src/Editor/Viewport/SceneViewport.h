@@ -28,27 +28,25 @@ class QWheelEvent;
 
 
 /**
- * @brief Виджет отображения и взаимодействия с 3D-сценой редактора.
+ * @brief OpenGL viewport редактора.
  *
  * SceneViewport отвечает за:
- *
- * - отображение объектов Scene;
- * - управление Camera;
- * - переключение Perspective / Orthographic;
- * - отображение Grid и координатных осей;
- * - импорт Mesh в OpenGL;
- * - выбор SceneObject мышью через Ray Picking.
+ * - отображение сцены;
+ * - управление камерой;
+ * - импорт и отображение моделей;
+ * - выбор объектов мышью;
+ * - отображение editor grid и координатных осей;
+ * - отображение выбранного SceneObject;
+ * - Frame Selected;
+ * - editor gizmo.
  */
-class SceneViewport final
-    : public QOpenGLWidget
-{
+class SceneViewport final : public QOpenGLWidget {
 public:
 
     /**
-     * @brief Тип проекции Camera.
+     * @brief Режим проекции камеры.
      */
-    enum class ProjectionMode
-    {
+    enum class ProjectionMode {
         Perspective,
         Orthographic
     };
@@ -57,37 +55,32 @@ public:
     /**
      * @brief Callback изменения выбранного объекта.
      *
-     * Используется EditorWindow для синхронизации
-     * выбора между Viewport, Hierarchy и Inspector.
+     * Используется для синхронизации:
+     *
+     * Viewport -> Hierarchy -> Inspector.
      */
     using SelectionChangedCallback =
-        std::function<
-            void(
-                std::shared_ptr<SceneObject>
-            )
-        >;
+        std::function<void(
+            std::shared_ptr<SceneObject>
+        )>;
 
+    using TransformChangedCallback =
+        std::function<void()>;
 
-public:
-
-    /**
-     * @brief Создаёт Scene Viewport.
-     */
     explicit SceneViewport(
         QWidget* parent = nullptr
     );
 
+    void SetTransformChangedCallback (TransformChangedCallback callback);
 
-    /**
-     * @brief Освобождает OpenGL-ресурсы Viewport.
-     */
+    TransformChangedCallback transform_changed_callback_;
+
     ~SceneViewport() override;
 
 
     /**
-     * @brief Загружает и отображает модель.
-     *
-     * @param file_path Путь к OBJ-файлу.
+     * @brief Передаёт путь к OBJ модели,
+     * которая должна быть загружена в сцену.
      */
     void SetDisplayedFile(
         const QString& file_path
@@ -95,7 +88,7 @@ public:
 
 
     /**
-     * @brief Устанавливает тип проекции Camera.
+     * @brief Устанавливает режим проекции.
      */
     void SetProjectionMode(
         ProjectionMode mode
@@ -103,34 +96,29 @@ public:
 
 
     /**
-     * @brief Возвращает текущий тип проекции.
+     * @brief Возвращает текущий режим проекции.
      */
-    ProjectionMode
-    GetProjectionMode() const;
+    ProjectionMode GetProjectionMode() const;
 
 
     /**
-     * @brief Возвращает Scene.
+     * @brief Возвращает сцену viewport.
      */
-    Scene&
-    GetScene();
+    Scene& GetScene();
 
 
     /**
-     * @brief Возвращает Scene только для чтения.
+     * @brief Возвращает сцену viewport
+     * только для чтения.
      */
-    const Scene&
-    GetScene() const;
+    const Scene& GetScene() const;
 
 
     /**
      * @brief Устанавливает выбранный SceneObject.
      *
-     * Используется, например, когда объект
-     * выбирается через HierarchyPanel.
-     *
-     * Этот метод сам не вызывает
-     * SelectionChangedCallback.
+     * Используется, когда объект выбирается
+     * через HierarchyPanel.
      */
     void SetSelectedObject(
         std::shared_ptr<SceneObject> object
@@ -138,7 +126,7 @@ public:
 
 
     /**
-     * @brief Возвращает выбранный объект.
+     * @brief Возвращает выбранный SceneObject.
      */
     std::shared_ptr<SceneObject>
     GetSelectedObject() const;
@@ -146,9 +134,6 @@ public:
 
     /**
      * @brief Устанавливает callback изменения selection.
-     *
-     * Callback вызывается, когда объект
-     * выбирается непосредственно во Viewport.
      */
     void SetSelectionChangedCallback(
         SelectionChangedCallback callback
@@ -158,20 +143,21 @@ public:
 private:
 
     /**
-     * @brief Создаёт UI-элементы Viewport.
+     * @brief Создаёт Qt-интерфейс viewport.
      */
     void CreateLayout();
 
 
     /**
-     * @brief Передаёт ожидающий Mesh на GPU
-     * после появления OpenGL Context.
+     * @brief Загружает ожидающую OBJ модель
+     * в OpenGL и создаёт SceneObject.
      */
     void UploadPendingMesh();
 
 
     /**
-     * @brief Рассчитывает начальный Transform модели.
+     * @brief Рассчитывает параметры отображения
+     * импортированной модели.
      */
     void CalculateModelFit(
         const ImportedMeshData& mesh_data
@@ -179,31 +165,31 @@ private:
 
 
     /**
-     * @brief Обрабатывает непрерывное движение Camera.
+     * @brief Обрабатывает непрерывное
+     * перемещение камеры.
      */
     void TickInput();
 
 
     /**
-     * @brief Обновляет заголовок Scene View.
+     * @brief Обновляет текст режима проекции.
      */
     void UpdateProjectionTitle();
 
 
     /**
-     * @brief Обновляет информационный блок координат.
+     * @brief Обновляет информацию о камере
+     * и выбранном объекте.
      */
     void UpdateCoordinatesLabel();
 
 
     /**
-     * @brief Располагает все объекты сцены.
+     * @brief Расставляет объекты сцены.
      *
-     * Метод сохранён для возможного ручного
-     * автоматического выравнивания объектов.
-     *
-     * При обычном импорте сейчас не используется,
-     * чтобы не изменять Transform уже существующих объектов.
+     * Метод сохранён для возможного дальнейшего
+     * использования, но при обычном импорте
+     * объектов сейчас не вызывается.
      */
     void ArrangeSceneObjects();
 
@@ -215,17 +201,37 @@ private:
 
 
     /**
-     * @brief Создаёт геометрию Grid.
+     * @brief Создаёт геометрию Move Gizmo.
+     *
+     * Gizmo состоит из трёх локальных осей:
+     *
+     * X - красная;
+     * Y - зелёная;
+     * Z - синяя.
+     */
+    void CreateMoveGizmo();
+
+
+    /**
+     * @brief Создаёт геометрию сетки редактора.
      */
     ImportedMeshData
     CreateGridMeshData() const;
 
+    enum class GizmoAxis {
+        None,
+        X,
+        Y,
+        Z
+    };
+
 
     /**
-     * @brief Создаёт одну координатную ось.
+     * @brief Создаёт линию между двумя точками.
      *
-     * @param start Начало линии.
-     * @param end Конец линии.
+     * Используется для:
+     * - мировых осей;
+     * - Move Gizmo.
      */
     ImportedMeshData
     CreateAxisMeshData(
@@ -235,35 +241,24 @@ private:
 
 
     /**
-     * @brief Определяет позицию нового импортированного объекта.
+     * @brief Рассчитывает позицию,
+     * в которой должен появиться новый объект.
      */
-    Vec3
-    FindSpawnPosition() const;
+    Vec3 FindSpawnPosition() const;
 
 
     /**
-     * @brief Создаёт Ray из позиции мыши.
-     *
-     * Луч строится в World Space.
-     *
-     * @param mouse_position Координаты мыши внутри Viewport.
+     * @brief Создаёт луч из позиции мыши
+     * в пространство сцены.
      */
-    Ray
-    CreateMouseRay(
+    Ray CreateMouseRay(
         const QPointF& mouse_position
     ) const;
 
 
     /**
-     * @brief Выполняет Ray Picking объекта сцены.
-     *
-     * Для каждого SceneObject:
-     *
-     * 1. World Ray переводится в Local Space;
-     * 2. проверяется пересечение с BoundingBox;
-     * 3. выбирается ближайший объект.
-     *
-     * @param mouse_position Позиция клика мыши.
+     * @brief Выполняет Ray Picking
+     * объектов сцены.
      */
     void SelectObjectAt(
         const QPointF& mouse_position
@@ -271,22 +266,33 @@ private:
 
 
     /**
-     * @brief Сообщает EditorWindow
+     * @brief Уведомляет EditorWindow
      * об изменении выбранного объекта.
      */
     void NotifySelectionChanged();
 
 
+    /**
+     * @brief Перемещает камеру так,
+     * чтобы выбранный объект оказался
+     * в центре viewport.
+     *
+     * Вызывается клавишей F.
+     */
+    void FrameSelectedObject();
+
+
 protected:
 
     /**
-     * @brief Инициализация OpenGL.
+     * @brief Инициализация OpenGL ресурсов.
      */
     void initializeGL() override;
 
 
     /**
-     * @brief Обработка изменения размера Viewport.
+     * @brief Обновление OpenGL viewport
+     * при изменении размеров окна.
      */
     void resizeGL(
         int width,
@@ -295,13 +301,13 @@ protected:
 
 
     /**
-     * @brief Отрисовка Scene.
+     * @brief Основной проход рендера сцены.
      */
     void paintGL() override;
 
 
     /**
-     * @brief Обработка нажатия клавиши.
+     * @brief Обработка нажатия клавиш.
      */
     void keyPressEvent(
         QKeyEvent* event
@@ -309,7 +315,7 @@ protected:
 
 
     /**
-     * @brief Обработка отпускания клавиши.
+     * @brief Обработка отпускания клавиш.
      */
     void keyReleaseEvent(
         QKeyEvent* event
@@ -317,11 +323,7 @@ protected:
 
 
     /**
-     * @brief Обработка нажатия кнопки мыши.
-     *
-     * Обычный ЛКМ — выбор объекта.
-     *
-     * Alt + ЛКМ — вращение Camera.
+     * @brief Обработка нажатия кнопок мыши.
      */
     void mousePressEvent(
         QMouseEvent* event
@@ -329,7 +331,7 @@ protected:
 
 
     /**
-     * @brief Обработка отпускания кнопки мыши.
+     * @brief Обработка отпускания кнопок мыши.
      */
     void mouseReleaseEvent(
         QMouseEvent* event
@@ -345,7 +347,7 @@ protected:
 
 
     /**
-     * @brief Обработка колеса мыши / trackpad.
+     * @brief Обработка колеса мыши.
      */
     void wheelEvent(
         QWheelEvent* event
@@ -354,110 +356,123 @@ protected:
 
 private:
 
-    /**
-     * @brief Заголовок Scene View.
+    /*
+     * Qt UI.
      */
     QLabel* title_label_ =
         nullptr;
 
-
-    /**
-     * @brief Текст-заглушка до загрузки модели.
-     */
     QLabel* content_label_ =
         nullptr;
 
-
-    /**
-     * @brief Информационный блок координат.
-     */
     QLabel* coordinates_label_ =
         nullptr;
 
 
-    /**
-     * @brief Renderer движка.
+    /*
+     * Renderer.
      */
     Renderer renderer_;
 
 
-    /**
-     * @brief Camera редактора.
+    /*
+     * Camera.
      */
     Camera camera_;
 
 
-    /**
-     * @brief Текущая Scene.
+    /*
+     * Scene.
      */
     Scene scene_;
 
 
-    /**
-     * @brief Выбранный объект сцены.
+    /*
+     * Текущий выбранный объект.
      */
     std::shared_ptr<SceneObject>
         selected_object_;
 
 
-    /**
-     * @brief Callback выбора объекта
-     * непосредственно во Viewport.
+    /*
+     * Callback изменения selection.
      */
     SelectionChangedCallback
         selection_changed_callback_;
 
 
-    /**
-     * @brief Основной Shader.
+    /*
+     * Основной Shader сцены.
      */
     std::unique_ptr<Shader>
         shader_;
 
 
-    /**
-     * @brief Mesh Grid.
+    /*
+     * Editor Grid.
      */
     std::unique_ptr<Mesh>
         grid_mesh_;
 
 
-    /**
-     * @brief Mesh оси X.
+    /*
+     * Мировая ось X.
      */
     std::unique_ptr<Mesh>
         axis_x_mesh_;
 
 
-    /**
-     * @brief Mesh оси Y.
+    /*
+     * Мировая ось Y.
      */
     std::unique_ptr<Mesh>
         axis_y_mesh_;
 
 
-    /**
-     * @brief Mesh оси Z.
+    /*
+     * Мировая ось Z.
      */
     std::unique_ptr<Mesh>
         axis_z_mesh_;
 
 
-    /**
-     * @brief Mesh, ожидающий загрузки в OpenGL.
+    /*
+     * Move Gizmo X.
+     */
+    std::unique_ptr<Mesh>
+        gizmo_x_mesh_;
+
+
+    /*
+     * Move Gizmo Y.
+     */
+    std::unique_ptr<Mesh>
+        gizmo_y_mesh_;
+
+
+    /*
+     * Move Gizmo Z.
+     */
+    std::unique_ptr<Mesh>
+        gizmo_z_mesh_;
+
+
+    /*
+     * OBJ, ожидающий загрузки
+     * после создания OpenGL Context.
      */
     std::optional<ImportedMeshData>
         pending_mesh_data_;
 
 
-    /**
-     * @brief Путь к последнему открытому файлу.
+    /*
+     * Путь к текущему импортированному файлу.
      */
     QString current_file_path_;
 
 
-    /**
-     * @brief Цвет фона Scene.
+    /*
+     * Цвет фона viewport.
      */
     Vec3 background_color_{
         0.12f,
@@ -466,8 +481,9 @@ private:
     };
 
 
-    /**
-     * @brief Начальная позиция импортируемой модели.
+    /*
+     * Параметры, используемые
+     * для первоначального отображения модели.
      */
     Vec3 model_position_{
         0.0f,
@@ -475,20 +491,12 @@ private:
         0.0f
     };
 
-
-    /**
-     * @brief Начальное вращение импортируемой модели.
-     */
     Vec3 model_rotation_{
         0.0f,
         0.0f,
         0.0f
     };
 
-
-    /**
-     * @brief Начальный Scale импортируемой модели.
-     */
     Vec3 model_scale_{
         1.0f,
         1.0f,
@@ -496,8 +504,10 @@ private:
     };
 
 
-    /**
-     * @brief Флаги непрерывного движения Camera.
+    GizmoAxis active_gizmo_axis_ = GizmoAxis::None;
+
+    /*
+     * Состояние клавиш движения камеры.
      */
     bool move_forward_ =
         false;
@@ -519,7 +529,7 @@ private:
 
 
     /**
-     * @brief Активно ли вращение Camera мышью.
+     * @brief Активно ли вращение камеры мышью.
      */
     bool pointer_look_active_ =
         false;
@@ -527,25 +537,25 @@ private:
 
     /**
      * @brief Предыдущая позиция мыши
-     * во время вращения Camera.
+     * при вращении камеры.
      */
     QPointF last_pointer_position_;
 
 
     /**
-     * @brief Таймер обновления Camera.
+     * @brief Таймер обработки движения камеры.
      */
     QTimer input_timer_;
 
 
     /**
-     * @brief Таймер вычисления delta time.
+     * @brief Таймер для вычисления delta time.
      */
     QElapsedTimer input_clock_;
 
 
     /**
-     * @brief Текущий режим Projection.
+     * @brief Текущий режим проекции камеры.
      */
     ProjectionMode projection_mode_ =
         ProjectionMode::Perspective;
@@ -553,15 +563,27 @@ private:
 
     /**
      * @brief Половина вертикального размера
-     * Orthographic projection.
+     * ортографической области просмотра.
      */
     float orthographic_half_height_ =
         5.0f;
 
 
     /**
-     * @brief Показывает, был ли уже создан OpenGL Context.
+     * @brief Инициализирован ли OpenGL Context.
      */
     bool gl_initialized_ =
         false;
+
+
+    GizmoAxis PickMoveGizmoAxis(
+        const QPointF& mouse_position
+    ) const;
+
+    bool TryBeginMoveGizmoDrag(
+        const QPointF& mouse_position
+    );
+
+    bool gizmo_drag_active_ =
+    false;
 };

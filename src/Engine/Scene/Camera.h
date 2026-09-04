@@ -132,6 +132,16 @@ public:
      */
     Vec3 GetUp() const;
 
+    /**
+     * @brief Устанавливает позицию камеры
+     * в мировом пространстве.
+     *
+     * @param position Новая позиция камеры.
+     */
+    void SetPosition(
+        const Vec3& position
+    );
+
 private:
 
     /**

@@ -285,3 +285,7 @@ Vec3 Camera::GetUp() const {
         )
     );
 }
+
+void Camera::SetPosition (const Vec3& position) {
+    position_ = position;
+}

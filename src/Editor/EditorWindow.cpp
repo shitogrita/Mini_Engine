@@ -329,6 +329,10 @@ void EditorWindow::CreateDockWidgets()
             )
             {
 
+                hierarchy_panel_->
+                    SetSelectedObject(
+                        object
+                    );
 
                 inspector_panel_->
                     SetSelectedObject(
@@ -349,6 +353,14 @@ void EditorWindow::CreateDockWidgets()
                     update();
             }
         );
+    scene_viewport_->
+    SetTransformChangedCallback(
+        [this]()
+        {
+            inspector_panel_->
+                RefreshTransformFields();
+        }
+    );
 }
 
 void EditorWindow::CreateStatusBar()

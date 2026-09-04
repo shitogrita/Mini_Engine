@@ -236,6 +236,12 @@ void InspectorPanel::CreateLayout()
     main_layout->addStretch();
 
 
+    /*
+     * Общая функция обновления Transform.
+     *
+     * Все девять QDoubleSpinBox используют
+     * одну и ту же логику.
+     */
     const auto update_transform =
         [this]()
         {
@@ -246,9 +252,11 @@ void InspectorPanel::CreateLayout()
                 return;
             }
 
+
             Transform& transform =
                 selected_object_->
                     GetTransform();
+
 
             transform.position.x =
                 static_cast<float>(
@@ -415,7 +423,9 @@ InspectorPanel::CreateTransformSpinBox()
         0.1
     );
 
-    spin_box->setKeyboardTracking(true);
+    spin_box->setKeyboardTracking(
+        true
+    );
 
     return spin_box;
 }
@@ -436,6 +446,7 @@ void InspectorPanel::SetObjectName(
     );
 }
 
+
 void InspectorPanel::SetSelectedObject(
     std::shared_ptr<SceneObject> object
 )
@@ -443,31 +454,50 @@ void InspectorPanel::SetSelectedObject(
     selected_object_ =
         std::move(object);
 
+
     if (!selected_object_) {
         ClearSelection();
+
         return;
     }
 
+
     SetObjectName(
         QString::fromStdString(
-            selected_object_->GetName()
+            selected_object_->
+                GetName()
         )
     );
 
+
     transform_label_->show();
+
 
     position_x_->show();
     position_y_->show();
     position_z_->show();
 
+
     rotation_x_->show();
     rotation_y_->show();
     rotation_z_->show();
+
 
     scale_x_->show();
     scale_y_->show();
     scale_z_->show();
 
+
+    UpdateTransformFields();
+}
+
+
+void InspectorPanel::RefreshTransformFields()
+{
+    /*
+     * Transform мог измениться за пределами Inspector,
+     * например во время перемещения Move Gizmo.
+     */
     UpdateTransformFields();
 }
 
@@ -478,7 +508,16 @@ void InspectorPanel::UpdateTransformFields()
         return;
     }
 
-    updating_fields_ = true;
+
+    /*
+     * setValue() генерирует valueChanged.
+     *
+     * Поэтому на время программного обновления
+     * блокируем нашу логику изменения Transform.
+     */
+    updating_fields_ =
+        true;
+
 
     const Transform& transform =
         selected_object_->
@@ -523,7 +562,9 @@ void InspectorPanel::UpdateTransformFields()
         transform.scale.z
     );
 
-    updating_fields_ = false;
+
+    updating_fields_ =
+        false;
 }
 
 
@@ -532,7 +573,9 @@ void InspectorPanel::SetTransformChangedCallback(
 )
 {
     transform_changed_callback_ =
-        std::move(callback);
+        std::move(
+            callback
+        );
 }
 
 
@@ -540,23 +583,29 @@ void InspectorPanel::ClearSelection()
 {
     selected_object_.reset();
 
+
     title_label_->setText(
         "No object selected"
     );
 
+
     transform_label_->hide();
+
 
     position_x_->hide();
     position_y_->hide();
     position_z_->hide();
 
+
     rotation_x_->hide();
     rotation_y_->hide();
     rotation_z_->hide();
 
+
     scale_x_->hide();
     scale_y_->hide();
     scale_z_->hide();
+
 
     information_label_->setText(
         "Select an object in Hierarchy to inspect it."

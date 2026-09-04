@@ -219,11 +219,27 @@ SceneViewport::~SceneViewport()
 
         scene_.Clear();
 
+
+        /*
+         * Editor Grid и мировые оси.
+         */
         grid_mesh_.reset();
 
         axis_x_mesh_.reset();
         axis_y_mesh_.reset();
         axis_z_mesh_.reset();
+
+
+        /*
+         * Move Gizmo.
+         *
+         * Mesh также содержит OpenGL-ресурсы,
+         * поэтому уничтожаем его до doneCurrent().
+         */
+        gizmo_x_mesh_.reset();
+        gizmo_y_mesh_.reset();
+        gizmo_z_mesh_.reset();
+
 
         shader_.reset();
 
@@ -382,6 +398,11 @@ void SceneViewport::initializeGL()
      * - Z axis.
      */
     CreateEditorGrid();
+
+    /*
+     * Transform helper выбранного объекта.
+     */
+    CreateMoveGizmo();
 
 
     gl_initialized_ =
@@ -590,6 +611,64 @@ SceneViewport::CreateGridMeshData() const
     return data;
 }
 
+void SceneViewport::CreateMoveGizmo()
+{
+    /*
+     * Gizmo создаётся около локального начала координат.
+     *
+     * Позже при рендере мы будем переносить его
+     * в world position выбранного SceneObject.
+     */
+    gizmo_x_mesh_ =
+        std::make_unique<Mesh>(
+            CreateAxisMeshData(
+                Vec3{
+                    0.0f,
+                    0.0f,
+                    0.0f
+                },
+                Vec3{
+                    1.0f,
+                    0.0f,
+                    0.0f
+                }
+            )
+        );
+
+
+    gizmo_y_mesh_ =
+        std::make_unique<Mesh>(
+            CreateAxisMeshData(
+                Vec3{
+                    0.0f,
+                    0.0f,
+                    0.0f
+                },
+                Vec3{
+                    0.0f,
+                    1.0f,
+                    0.0f
+                }
+            )
+        );
+
+
+    gizmo_z_mesh_ =
+        std::make_unique<Mesh>(
+            CreateAxisMeshData(
+                Vec3{
+                    0.0f,
+                    0.0f,
+                    0.0f
+                },
+                Vec3{
+                    0.0f,
+                    0.0f,
+                    1.0f
+                }
+            )
+        );
+}
 
 ImportedMeshData
 SceneViewport::CreateAxisMeshData(
@@ -879,20 +958,6 @@ void SceneViewport::paintGL()
 
 
     /*
-     * Основной цвет SceneObject.
-     */
-    shader_->SetVec4(
-        "uColor",
-        Vec4{
-            0.67f,
-            0.76f,
-            0.91f,
-            1.0f
-        }
-    );
-
-
-    /*
      * Каждый SceneObject имеет собственный Transform,
      * поэтому для него строится отдельная MVP Matrix:
      *
@@ -913,6 +978,40 @@ void SceneViewport::paintGL()
 
         if (!mesh) {
             continue;
+        }
+
+
+        /*
+         * Выбранный объект отображается
+         * отдельным цветом.
+         *
+         * Пока это простой вариант визуального
+         * выделения без дополнительного
+         * outline-pass и stencil buffer.
+         */
+        if (
+            object ==
+            selected_object_
+        ) {
+            shader_->SetVec4(
+                "uColor",
+                Vec4{
+                    1.0f,
+                    0.68f,
+                    0.20f,
+                    1.0f
+                }
+            );
+        } else {
+            shader_->SetVec4(
+                "uColor",
+                Vec4{
+                    0.67f,
+                    0.76f,
+                    0.91f,
+                    1.0f
+                }
+            );
         }
 
 
@@ -940,6 +1039,116 @@ void SceneViewport::paintGL()
             *mesh,
             *shader_,
             mvp
+        );
+    }
+
+    /*
+ * Move Gizmo отображается только тогда,
+ * когда в сцене выбран объект.
+ */
+    if (
+        selected_object_ &&
+        gizmo_x_mesh_ &&
+        gizmo_y_mesh_ &&
+        gizmo_z_mesh_
+    ) {
+        /*
+         * Gizmo должен находиться в origin
+         * выбранного SceneObject.
+         *
+         * Для этого используем только Position объекта.
+         * Rotation и Scale самого объекта на gizmo
+         * пока не влияют: оси gizmo ориентированы
+         * относительно мировых X, Y и Z.
+         */
+        const Vec3 gizmo_position =
+            selected_object_->
+                GetTransform().
+                position;
+
+
+        const Matrix4 gizmo_model =
+            AffineTransformation::Translation4(
+                gizmo_position.x,
+                gizmo_position.y,
+                gizmo_position.z
+            );
+
+
+        const Matrix4 gizmo_view_model =
+            AffineTransformation::Multiply4(
+                view,
+                gizmo_model
+            );
+
+
+        const Matrix4 gizmo_mvp =
+            AffineTransformation::Multiply4(
+                projection,
+                gizmo_view_model
+            );
+
+
+        /*
+         * X — красная ось.
+         */
+        shader_->SetVec4(
+            "uColor",
+            Vec4{
+                0.95f,
+                0.25f,
+                0.25f,
+                1.0f
+            }
+        );
+
+        renderer_.DrawLines(
+            *gizmo_x_mesh_,
+            *shader_,
+            gizmo_mvp,
+            4.0f
+        );
+
+
+        /*
+         * Y — зелёная ось.
+         */
+        shader_->SetVec4(
+            "uColor",
+            Vec4{
+                0.30f,
+                0.90f,
+                0.35f,
+                1.0f
+            }
+        );
+
+        renderer_.DrawLines(
+            *gizmo_y_mesh_,
+            *shader_,
+            gizmo_mvp,
+            4.0f
+        );
+
+
+        /*
+         * Z — синяя ось.
+         */
+        shader_->SetVec4(
+            "uColor",
+            Vec4{
+                0.25f,
+                0.50f,
+                1.0f,
+                1.0f
+            }
+        );
+
+        renderer_.DrawLines(
+            *gizmo_z_mesh_,
+            *shader_,
+            gizmo_mvp,
+            4.0f
         );
     }
 }
@@ -2201,6 +2410,10 @@ void SceneViewport::keyPressEvent(
             );
             break;
 
+        case Qt::Key_F:
+            FrameSelectedObject();
+            break;
+
 
         default:
             QOpenGLWidget::
@@ -2267,7 +2480,6 @@ void SceneViewport::keyReleaseEvent(
     }
 }
 
-
 void SceneViewport::mousePressEvent(
     QMouseEvent* event
 )
@@ -2279,6 +2491,9 @@ void SceneViewport::mousePressEvent(
      * Alt + ЛКМ:
      *
      * управление поворотом Camera.
+     *
+     * Camera имеет больший приоритет,
+     * чем Move Gizmo.
      */
     if (
         event->button() ==
@@ -2305,14 +2520,35 @@ void SceneViewport::mousePressEvent(
 
 
     /*
-     * Обычный ЛКМ:
-     *
-     * Ray Picking SceneObject.
+     * Обычный ЛКМ.
      */
     if (
         event->button() ==
         Qt::LeftButton
     ) {
+        /*
+         * Сначала проверяем Move Gizmo.
+         *
+         * Если пользователь нажал на одну
+         * из его осей, SceneObject повторно
+         * выбирать не нужно.
+         */
+        if (
+            TryBeginMoveGizmoDrag(
+                event->position()
+            )
+        ) {
+            event->accept();
+
+            return;
+        }
+
+
+        /*
+         * Если ни одна ось gizmo
+         * не была нажата —
+         * выполняем обычный Ray Picking.
+         */
         SelectObjectAt(
             event->position()
         );
@@ -2330,26 +2566,44 @@ void SceneViewport::mousePressEvent(
         );
 }
 
-
 void SceneViewport::mouseReleaseEvent(
     QMouseEvent* event
 )
 {
-    /*
-     * Останавливаем вращение Camera,
-     * если пользователь отпустил ЛКМ.
-     */
     if (
         event->button() ==
         Qt::LeftButton
     ) {
-        pointer_look_active_ =
-            false;
+        /*
+         * Завершаем перемещение объекта
+         * через Move Gizmo.
+         */
+        if (gizmo_drag_active_) {
+            gizmo_drag_active_ =
+                false;
+
+            active_gizmo_axis_ =
+                GizmoAxis::None;
+
+            update();
+
+            event->accept();
+
+            return;
+        }
 
 
-        event->accept();
+        /*
+         * Завершаем вращение Camera.
+         */
+        if (pointer_look_active_) {
+            pointer_look_active_ =
+                false;
 
-        return;
+            event->accept();
+
+            return;
+        }
     }
 
 
@@ -2359,71 +2613,154 @@ void SceneViewport::mouseReleaseEvent(
         );
 }
 
-
 void SceneViewport::mouseMoveEvent(
     QMouseEvent* event
 )
 {
+    const QPointF current_position =
+        event->position();
+
+
     /*
-     * Обычное перемещение мыши
-     * не вращает Camera.
+     * Перемещение выбранного SceneObject
+     * через Move Gizmo.
      */
-    if (!pointer_look_active_) {
-        QOpenGLWidget::
-            mouseMoveEvent(
-                event
-            );
+    if (
+        gizmo_drag_active_ &&
+        selected_object_
+    ) {
+        const QPointF delta =
+            current_position -
+            last_pointer_position_;
+
+
+        /*
+         * Пока используем экранное смещение мыши
+         * как величину перемещения.
+         *
+         * На следующем уровне развития gizmo
+         * это можно заменить на точное
+         * Ray/Axis преобразование.
+         */
+        constexpr float move_sensitivity =
+            0.01f;
+
+
+        Transform& transform =
+            selected_object_->
+                GetTransform();
+
+
+        switch (
+            active_gizmo_axis_
+        ) {
+            case GizmoAxis::X:
+                transform.position.x +=
+                    static_cast<float>(
+                        delta.x()
+                    ) *
+                    move_sensitivity;
+                break;
+
+
+            case GizmoAxis::Y:
+                /*
+                 * Экранная координата Y в Qt
+                 * увеличивается вниз,
+                 * поэтому знак инвертируется.
+                 */
+                transform.position.y -=
+                    static_cast<float>(
+                        delta.y()
+                    ) *
+                    move_sensitivity;
+                break;
+
+
+            case GizmoAxis::Z:
+                /*
+                 * Для первого варианта Z
+                 * управляется горизонтальным
+                 * движением мыши.
+                 */
+                transform.position.z +=
+                    static_cast<float>(
+                        delta.x()
+                    ) *
+                    move_sensitivity;
+                break;
+
+
+            case GizmoAxis::None:
+                break;
+        }
+
+
+        last_pointer_position_ =
+            current_position;
+
+        if (transform_changed_callback_) {
+            transform_changed_callback_();
+        }
+
+        UpdateCoordinatesLabel();
+
+        update();
+
+
+        event->accept();
 
         return;
     }
 
 
-    const QPointF current_position =
-        event->position();
-
-
-    const QPointF delta =
-        current_position -
-        last_pointer_position_;
-
-
-    last_pointer_position_ =
-        current_position;
-
-
-    constexpr float look_sensitivity =
-        0.18f;
-
-
     /*
-     * По X изменяется Yaw.
-     * По Y изменяется Pitch.
-     *
-     * Знак Y инвертируется,
-     * потому что экранная ось Qt
-     * направлена вниз.
+     * Alt + ЛКМ:
+     * вращение Camera.
      */
-    camera_.Rotate(
-        static_cast<float>(
-            delta.x()
-        ) *
-            look_sensitivity,
-
-        static_cast<float>(
-            -delta.y()
-        ) *
-            look_sensitivity
-    );
+    if (pointer_look_active_) {
+        const QPointF delta =
+            current_position -
+            last_pointer_position_;
 
 
-    UpdateCoordinatesLabel();
+        constexpr float mouse_sensitivity =
+            0.20f;
 
-    update();
+
+        camera_.Rotate(
+            static_cast<float>(
+                delta.x()
+            ) *
+            mouse_sensitivity,
+
+            static_cast<float>(
+                -delta.y()
+            ) *
+            mouse_sensitivity
+        );
 
 
-    event->accept();
+        last_pointer_position_ =
+            current_position;
+
+
+        UpdateCoordinatesLabel();
+
+        update();
+
+
+        event->accept();
+
+        return;
+    }
+
+
+    QOpenGLWidget::
+        mouseMoveEvent(
+            event
+        );
 }
-
 
 void SceneViewport::wheelEvent(
     QWheelEvent* event
@@ -2512,4 +2849,481 @@ void SceneViewport::wheelEvent(
     update();
 
     event->accept();
+}
+
+void SceneViewport::FrameSelectedObject()
+{
+    if (!selected_object_) {
+        return;
+    }
+
+    const BoundingBox& bounding_box =
+        selected_object_->GetBoundingBox();
+
+    const Vec3 local_center =
+        bounding_box.GetCenter();
+
+    const Vec3 local_size =
+        bounding_box.GetSize();
+
+    const Matrix4 model =
+        selected_object_->
+            GetTransform().
+            GetModelMatrix();
+
+    /*
+     * BoundingBox хранится в локальных координатах Mesh,
+     * поэтому центр переводим в мировое пространство.
+     */
+    const Vec3 world_center =
+        AffineTransformation::TransformPoint(
+            model,
+            local_center
+        );
+
+    /*
+     * Для оценки размера объекта учитываем Scale.
+     *
+     * Берём максимальный размер по трём осям,
+     * чтобы камера гарантированно отодвинулась
+     * достаточно далеко даже для вытянутых моделей.
+     */
+    const Vec3 scale =
+        selected_object_->
+            GetTransform().
+            scale;
+
+    const float world_size_x =
+        std::abs(
+            local_size.x *
+            scale.x
+        );
+
+    const float world_size_y =
+        std::abs(
+            local_size.y *
+            scale.y
+        );
+
+    const float world_size_z =
+        std::abs(
+            local_size.z *
+            scale.z
+        );
+
+    const float max_size =
+        std::max(
+            {
+                world_size_x,
+                world_size_y,
+                world_size_z
+            }
+        );
+
+    /*
+     * Используем половину максимального размера
+     * как приближённый радиус объекта.
+     */
+    const float radius =
+        std::max(
+            max_size * 0.5f,
+            0.1f
+        );
+
+    float distance =
+        radius * 2.5f;
+
+    /*
+     * Для Perspective учитываем угол обзора.
+     */
+    if (
+        projection_mode_ ==
+        ProjectionMode::Perspective
+    ) {
+        const float fov_radians =
+            kPerspectiveFovDegrees *
+            kPi /
+            180.0f;
+
+        distance =
+            radius /
+            std::tan(
+                fov_radians *
+                0.5f
+            );
+
+        /*
+         * Небольшой запас, чтобы объект
+         * не упирался в края viewport.
+         */
+        distance *=
+            1.35f;
+    } else {
+        /*
+         * В Orthographic размер объекта зависит
+         * не от расстояния до камеры,
+         * а от orthographic_half_height_.
+         */
+        orthographic_half_height_ =
+            std::max(
+                radius * 1.5f,
+                0.5f
+            );
+
+        distance =
+            radius * 2.5f;
+    }
+
+    const Vec3 forward =
+        camera_.GetForward();
+
+    const Vec3 new_camera_position{
+        world_center.x -
+            forward.x *
+            distance,
+
+        world_center.y -
+            forward.y *
+            distance,
+
+        world_center.z -
+            forward.z *
+            distance
+    };
+
+    camera_.SetPosition(
+        new_camera_position
+    );
+
+    UpdateCoordinatesLabel();
+
+    update();
+}
+
+SceneViewport::GizmoAxis
+SceneViewport::PickMoveGizmoAxis(
+    const QPointF& mouse_position
+) const
+{
+    if (!selected_object_) {
+        return GizmoAxis::None;
+    }
+
+
+    const Ray ray =
+        CreateMouseRay(
+            mouse_position
+        );
+
+
+    const Vec3 origin =
+        selected_object_->
+            GetTransform().
+            position;
+
+
+    /*
+     * Gizmo пока имеет длину 1 world unit.
+     */
+    constexpr float gizmo_length =
+        1.0f;
+
+
+    /*
+     * Допустимое расстояние от луча мыши
+     * до оси gizmo.
+     *
+     * Позже сделаем размер gizmo независимым
+     * от расстояния до Camera.
+     */
+    constexpr float selection_radius =
+        0.12f;
+
+
+    /*
+     * Возвращает минимальное расстояние
+     * между Ray и отрезком gizmo.
+     */
+    const auto distance_to_axis =
+        [&ray](
+            const Vec3& start,
+            const Vec3& end
+        )
+        {
+            const Vec3 segment{
+                end.x - start.x,
+                end.y - start.y,
+                end.z - start.z
+            };
+
+
+            const Vec3 from_ray_to_segment{
+                ray.origin.x - start.x,
+                ray.origin.y - start.y,
+                ray.origin.z - start.z
+            };
+
+
+            const float a =
+                ray.direction.x * ray.direction.x +
+                ray.direction.y * ray.direction.y +
+                ray.direction.z * ray.direction.z;
+
+
+            const float b =
+                ray.direction.x * segment.x +
+                ray.direction.y * segment.y +
+                ray.direction.z * segment.z;
+
+
+            const float c =
+                segment.x * segment.x +
+                segment.y * segment.y +
+                segment.z * segment.z;
+
+
+            const float d =
+                ray.direction.x * from_ray_to_segment.x +
+                ray.direction.y * from_ray_to_segment.y +
+                ray.direction.z * from_ray_to_segment.z;
+
+
+            const float e =
+                segment.x * from_ray_to_segment.x +
+                segment.y * from_ray_to_segment.y +
+                segment.z * from_ray_to_segment.z;
+
+
+            const float denominator =
+                a * c -
+                b * b;
+
+
+            float ray_parameter =
+                0.0f;
+
+            float segment_parameter =
+                0.0f;
+
+
+            if (
+                std::abs(denominator) >
+                1e-6f
+            ) {
+                ray_parameter =
+                    (
+                        b * e -
+                        c * d
+                    ) /
+                    denominator;
+
+
+                segment_parameter =
+                    (
+                        a * e -
+                        b * d
+                    ) /
+                    denominator;
+            }
+
+
+            /*
+             * Ray существует только вперёд
+             * от позиции Camera.
+             */
+            ray_parameter =
+                std::max(
+                    ray_parameter,
+                    0.0f
+                );
+
+
+            /*
+             * Gizmo — конечный отрезок.
+             */
+            segment_parameter =
+                std::clamp(
+                    segment_parameter,
+                    0.0f,
+                    1.0f
+                );
+
+
+            const Vec3 point_on_ray{
+                ray.origin.x +
+                    ray.direction.x *
+                    ray_parameter,
+
+                ray.origin.y +
+                    ray.direction.y *
+                    ray_parameter,
+
+                ray.origin.z +
+                    ray.direction.z *
+                    ray_parameter
+            };
+
+
+            const Vec3 point_on_segment{
+                start.x +
+                    segment.x *
+                    segment_parameter,
+
+                start.y +
+                    segment.y *
+                    segment_parameter,
+
+                start.z +
+                    segment.z *
+                    segment_parameter
+            };
+
+
+            const float dx =
+                point_on_ray.x -
+                point_on_segment.x;
+
+            const float dy =
+                point_on_ray.y -
+                point_on_segment.y;
+
+            const float dz =
+                point_on_ray.z -
+                point_on_segment.z;
+
+
+            return std::sqrt(
+                dx * dx +
+                dy * dy +
+                dz * dz
+            );
+        };
+
+
+    const Vec3 x_end{
+        origin.x + gizmo_length,
+        origin.y,
+        origin.z
+    };
+
+
+    const Vec3 y_end{
+        origin.x,
+        origin.y + gizmo_length,
+        origin.z
+    };
+
+
+    const Vec3 z_end{
+        origin.x,
+        origin.y,
+        origin.z + gizmo_length
+    };
+
+
+    const float x_distance =
+        distance_to_axis(
+            origin,
+            x_end
+        );
+
+
+    const float y_distance =
+        distance_to_axis(
+            origin,
+            y_end
+        );
+
+
+    const float z_distance =
+        distance_to_axis(
+            origin,
+            z_end
+        );
+
+
+    float best_distance =
+        selection_radius;
+
+
+    GizmoAxis result =
+        GizmoAxis::None;
+
+
+    if (
+        x_distance <
+        best_distance
+    ) {
+        best_distance =
+            x_distance;
+
+        result =
+            GizmoAxis::X;
+    }
+
+
+    if (
+        y_distance <
+        best_distance
+    ) {
+        best_distance =
+            y_distance;
+
+        result =
+            GizmoAxis::Y;
+    }
+
+
+    if (
+        z_distance <
+        best_distance
+    ) {
+        result =
+            GizmoAxis::Z;
+    }
+
+
+    return result;
+}
+
+
+bool SceneViewport::TryBeginMoveGizmoDrag(
+    const QPointF& mouse_position
+)
+{
+    active_gizmo_axis_ =
+        PickMoveGizmoAxis(
+            mouse_position
+        );
+
+
+    if (
+        active_gizmo_axis_ ==
+        GizmoAxis::None
+    ) {
+        return false;
+    }
+
+
+    gizmo_drag_active_ =
+        true;
+
+
+    last_pointer_position_ =
+        mouse_position;
+
+
+    update();
+
+
+    return true;
+}
+
+
+void SceneViewport::SetTransformChangedCallback(
+    TransformChangedCallback callback
+)
+{
+    transform_changed_callback_ =
+        std::move(callback);
 }
