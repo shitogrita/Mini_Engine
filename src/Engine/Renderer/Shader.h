@@ -48,6 +48,8 @@ public:
 		const Matrix4& value
 	) const;
 
+	void SetVec3(const std::string& name, const Vec3& value);
+
 private:
 	// OpenGL ID слинкованной shader program.
 	unsigned int program_id_ = 0;

@@ -5,6 +5,8 @@
 #include "Engine/Math/projection.h"
 #include "Engine/Platform/OpenGL/OpenGLLoader.h"
 #include "Engine/Scene/BoundingBox.h"
+#include "Engine/Renderer/PrimitiveGenerator.h"
+#include "Engine/Renderer/PrimitiveGenerator.h"
 
 #include <QByteArray>
 #include <QFileInfo>
@@ -242,6 +244,8 @@ SceneViewport::~SceneViewport()
 
 
         shader_.reset();
+        light_mesh_.reset();
+        light_shader_.reset();
 
         doneCurrent();
     }
@@ -387,7 +391,14 @@ void SceneViewport::initializeGL()
             shader_directory /
                 "basic.frag"
         );
+    light_shader_ = std::make_unique<Shader>(
+        std::filesystem::path(MINI_ENGINE_SHADER_DIR) / "lamp.vert",
+        std::filesystem::path(MINI_ENGINE_SHADER_DIR) / "lamp.frag"
+    );
 
+    light_mesh_ = std::make_unique<Mesh>(
+        PrimitiveGenerator::CreateSphere(0.08f, 16, 8)
+    );
 
     /*
      * Editor helpers:
@@ -770,15 +781,12 @@ void SceneViewport::paintGL()
         background_color_
     );
 
-
     if (!shader_) {
         return;
     }
 
-
     const Matrix4 view =
         camera_.GetViewMatrix();
-
 
     const float aspect =
         height() > 0
@@ -790,9 +798,7 @@ void SceneViewport::paintGL()
               )
             : 1.0f;
 
-
     Matrix4 projection{};
-
 
     /*
      * Projection Matrix должна использовать
@@ -821,7 +827,6 @@ void SceneViewport::paintGL()
             half_height *
             aspect;
 
-
         projection =
             Projection::Ortho(
                 -half_width,
@@ -833,16 +838,22 @@ void SceneViewport::paintGL()
             );
     }
 
-
     const Matrix4 view_projection =
         AffineTransformation::Multiply4(
             projection,
             view
         );
 
-
+    /*
+     * Основной shader.
+     *
+     * Он используется для:
+     * - Grid;
+     * - координатных осей;
+     * - SceneObject;
+     * - Move Gizmo.
+     */
     shader_->Use();
-
 
     shader_->SetInt(
         "uPointMode",
@@ -864,6 +875,30 @@ void SceneViewport::paintGL()
         1.0f
     );
 
+    /*
+     * Передаём параметры PointLight.
+     *
+     * Они понадобятся только тогда,
+     * когда uLightingEnabled == 1.
+     */
+    shader_->SetVec3(
+        "uLightPosition",
+        point_light_.GetPosition()
+    );
+
+    shader_->SetVec3(
+        "uLightColor",
+        point_light_.GetColor()
+    );
+
+    /*
+     * Grid, оси и Gizmo не должны
+     * рассчитывать освещение.
+     */
+    shader_->SetInt(
+        "uLightingEnabled",
+        0
+    );
 
     /*
      * Grid.
@@ -887,7 +922,6 @@ void SceneViewport::paintGL()
         );
     }
 
-
     /*
      * Ось X.
      */
@@ -909,7 +943,6 @@ void SceneViewport::paintGL()
             2.0f
         );
     }
-
 
     /*
      * Ось Z.
@@ -933,7 +966,6 @@ void SceneViewport::paintGL()
         );
     }
 
-
     /*
      * Ось Y.
      */
@@ -956,10 +988,21 @@ void SceneViewport::paintGL()
         );
     }
 
+    /*
+     * Начиная с этого момента,
+     * основной shader рассчитывает освещение.
+     *
+     * Это относится только к SceneObject.
+     */
+    shader_->SetInt(
+        "uLightingEnabled",
+        1
+    );
 
     /*
      * Каждый SceneObject имеет собственный Transform,
-     * поэтому для него строится отдельная MVP Matrix:
+     * поэтому для него строится отдельная Model Matrix
+     * и отдельная MVP Matrix:
      *
      * MVP = Projection * View * Model
      */
@@ -971,15 +1014,12 @@ void SceneViewport::paintGL()
             continue;
         }
 
-
         const std::shared_ptr<const Mesh> mesh =
             object->GetMesh();
-
 
         if (!mesh) {
             continue;
         }
-
 
         /*
          * Выбранный объект отображается
@@ -1014,12 +1054,27 @@ void SceneViewport::paintGL()
             );
         }
 
-
+        /*
+         * Model Matrix переводит координаты
+         * объекта из Local Space в World Space.
+         */
         const Matrix4 model =
             object->
                 GetTransform().
                 GetModelMatrix();
 
+        /*
+         * Для расчёта освещения shader должен
+         * отдельно знать Model Matrix.
+         *
+         * Одного uMVP недостаточно:
+         * нам нужна мировая позиция поверхности
+         * и корректно преобразованная Normal.
+         */
+        shader_->SetMat4(
+            "uModel",
+            model
+        );
 
         const Matrix4 view_model =
             AffineTransformation::Multiply4(
@@ -1027,13 +1082,11 @@ void SceneViewport::paintGL()
                 model
             );
 
-
         const Matrix4 mvp =
             AffineTransformation::Multiply4(
                 projection,
                 view_model
             );
-
 
         renderer_.Draw(
             *mesh,
@@ -1043,9 +1096,93 @@ void SceneViewport::paintGL()
     }
 
     /*
- * Move Gizmo отображается только тогда,
- * когда в сцене выбран объект.
- */
+     * Освещение обычных объектов закончилось.
+     *
+     * Всё, что рисуется дальше через basic shader,
+     * снова не должно подвергаться освещению.
+     */
+    shader_->SetInt(
+        "uLightingEnabled",
+        0
+    );
+
+    /*
+     * Визуализация PointLight.
+     *
+     * PointLight сам по себе — это только данные:
+     * position + color.
+     *
+     * Маленькая Sphere лишь показывает пользователю,
+     * где источник находится в сцене.
+     */
+    if (
+        light_shader_ &&
+        light_mesh_
+    ) {
+        const Vec3& light_position =
+            point_light_.GetPosition();
+
+        /*
+         * Сфера источника света создаётся около origin,
+         * поэтому переносим её в позицию PointLight.
+         */
+        const Matrix4 light_model =
+            AffineTransformation::Translation4(
+                light_position.x,
+                light_position.y,
+                light_position.z
+            );
+
+        const Matrix4 light_view_model =
+            AffineTransformation::Multiply4(
+                view,
+                light_model
+            );
+
+        const Matrix4 light_mvp =
+            AffineTransformation::Multiply4(
+                projection,
+                light_view_model
+            );
+
+        /*
+         * Переключаем OpenGL на отдельный shader лампы.
+         *
+         * Этот shader не рассчитывает освещение:
+         * Sphere всегда отображается цветом PointLight.
+         */
+        light_shader_->Use();
+
+        light_shader_->SetVec3(
+            "uLightColor",
+            point_light_.GetColor()
+        );
+
+        renderer_.Draw(
+            *light_mesh_,
+            *light_shader_,
+            light_mvp
+        );
+    }
+
+    /*
+     * После light_shader_ обязательно возвращаем
+     * основной shader.
+     *
+     * Иначе следующий Gizmo попытался бы рисоваться
+     * через lamp shader.
+     */
+    shader_->Use();
+
+    shader_->SetInt(
+        "uLightingEnabled",
+        0
+    );
+
+    /*
+     * Move Gizmo отображается только тогда,
+     * когда в сцене выбран объект.
+     */
     if (
         selected_object_ &&
         gizmo_x_mesh_ &&
@@ -1066,7 +1203,6 @@ void SceneViewport::paintGL()
                 GetTransform().
                 position;
 
-
         const Matrix4 gizmo_model =
             AffineTransformation::Translation4(
                 gizmo_position.x,
@@ -1074,20 +1210,17 @@ void SceneViewport::paintGL()
                 gizmo_position.z
             );
 
-
         const Matrix4 gizmo_view_model =
             AffineTransformation::Multiply4(
                 view,
                 gizmo_model
             );
 
-
         const Matrix4 gizmo_mvp =
             AffineTransformation::Multiply4(
                 projection,
                 gizmo_view_model
             );
-
 
         /*
          * X — красная ось.
@@ -1109,7 +1242,6 @@ void SceneViewport::paintGL()
             4.0f
         );
 
-
         /*
          * Y — зелёная ось.
          */
@@ -1129,7 +1261,6 @@ void SceneViewport::paintGL()
             gizmo_mvp,
             4.0f
         );
-
 
         /*
          * Z — синяя ось.
@@ -3326,4 +3457,43 @@ void SceneViewport::SetTransformChangedCallback(
 {
     transform_changed_callback_ =
         std::move(callback);
+}
+
+
+void SceneViewport::CreateCube() {
+    CreatePrimitive("Cube", PrimitiveGenerator::CreateCube());
+}
+
+void SceneViewport::CreatePlane() {
+    CreatePrimitive("Plane", PrimitiveGenerator::CreatePlane());
+}
+
+void SceneViewport::CreateSphere() {
+    CreatePrimitive("Sphere", PrimitiveGenerator::CreateSphere());
+}
+
+void SceneViewport::CreatePrimitive(const QString& name, ImportedMeshData mesh_data) {
+    if (!gl_initialized_) {
+        return;
+    }
+
+    makeCurrent();
+
+    const BoundingBox bounding_box = BoundingBox::FromPoints(mesh_data.positions);
+    auto mesh = std::make_shared<Mesh>(mesh_data);
+    auto object = std::make_shared<SceneObject>(name.toStdString(), std::move(mesh));
+
+    object->SetBoundingBox(bounding_box);
+    object->GetTransform().position = FindSpawnPosition();
+
+    scene_.AddObject(object);
+    content_label_->hide();
+    doneCurrent();
+
+    selected_object_ = object;
+
+    UpdateProjectionTitle();
+    UpdateCoordinatesLabel();
+    NotifySelectionChanged();
+    update();
 }

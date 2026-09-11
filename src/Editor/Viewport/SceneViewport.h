@@ -9,6 +9,7 @@
 #include "Engine/Scene/Camera.h"
 #include "Engine/Scene/Scene.h"
 #include "Engine/Scene/SceneObject.h"
+#include "Engine/Scene/PointLight.h"
 
 #include <QElapsedTimer>
 #include <QOpenGLWidget>
@@ -138,6 +139,10 @@ public:
     void SetSelectionChangedCallback(
         SelectionChangedCallback callback
     );
+
+    void CreateCube();
+    void CreatePlane();
+    void CreateSphere();
 
 
 private:
@@ -281,6 +286,15 @@ private:
      */
     void FrameSelectedObject();
 
+    /**
+     * @brief вызов примитивов
+     */
+    void CreatePrimitive(const QString& name, ImportedMeshData mesh_data);
+
+    PointLight point_light_;
+
+    std::unique_ptr<Mesh> light_mesh_;
+    std::unique_ptr<Shader> light_shader_;
 
 protected:
 

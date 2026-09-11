@@ -10,10 +10,10 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QKeySequence>
-#include <QMenu>
-#include <QMenuBar>
 #include <QMessageBox>
 #include <QStatusBar>
+#include <QMenu>
+#include <QMenuBar>
 
 EditorWindow::EditorWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -361,6 +361,30 @@ void EditorWindow::CreateDockWidgets()
                 RefreshTransformFields();
         }
     );
+
+    QMenu* create_menu = menuBar()->addMenu("Create");
+
+    QAction* create_cube_action = create_menu->addAction("Cube");
+    QAction* create_plane_action = create_menu->addAction("Plane");
+    QAction* create_sphere_action = create_menu->addAction("Sphere");
+
+    connect(create_cube_action, &QAction::triggered, this, [this]() {
+        scene_viewport_->CreateCube();
+        hierarchy_panel_->Refresh();
+        hierarchy_panel_->SetSelectedObject(scene_viewport_->GetSelectedObject());
+    });
+
+    connect(create_plane_action, &QAction::triggered, this, [this]() {
+        scene_viewport_->CreatePlane();
+        hierarchy_panel_->Refresh();
+        hierarchy_panel_->SetSelectedObject(scene_viewport_->GetSelectedObject());
+    });
+
+    connect(create_sphere_action, &QAction::triggered, this, [this]() {
+        scene_viewport_->CreateSphere();
+        hierarchy_panel_->Refresh();
+        hierarchy_panel_->SetSelectedObject(scene_viewport_->GetSelectedObject());
+    });
 }
 
 void EditorWindow::CreateStatusBar()
@@ -572,3 +596,5 @@ void EditorWindow::ApplyEditorStyle()
         )"
     );
 }
+
+

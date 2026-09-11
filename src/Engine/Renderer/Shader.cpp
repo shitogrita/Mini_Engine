@@ -314,3 +314,12 @@ void Shader::SetMat4(
         col_major.data()
     );
 }
+
+void Shader::SetVec3(const std::string& name, const Vec3& value) {
+    glUniform3f(
+        glGetUniformLocation(program_id_, name.c_str()),
+        value.x,
+        value.y,
+        value.z
+    );
+}
