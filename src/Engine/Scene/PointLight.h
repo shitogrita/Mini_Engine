@@ -34,7 +34,16 @@ public:
 		color_ = color;
 	}
 
+	float GetIntensity() const {
+		return intensity_;
+	}
+
+	void SetIntensity(float intensity) {
+		intensity_ = intensity;
+	}
+
 private:
 	Vec3 position_{1.2f, 1.0f, 2.0f};
 	Vec3 color_{1.0f, 1.0f, 1.0f};
+	float intensity_{1.0f};
 };

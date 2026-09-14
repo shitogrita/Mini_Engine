@@ -6,7 +6,6 @@
 #include "Engine/Platform/OpenGL/OpenGLLoader.h"
 #include "Engine/Scene/BoundingBox.h"
 #include "Engine/Renderer/PrimitiveGenerator.h"
-#include "Engine/Renderer/PrimitiveGenerator.h"
 
 #include <QByteArray>
 #include <QFileInfo>
@@ -881,15 +880,10 @@ void SceneViewport::paintGL()
      * Они понадобятся только тогда,
      * когда uLightingEnabled == 1.
      */
-    shader_->SetVec3(
-        "uLightPosition",
-        point_light_.GetPosition()
-    );
-
-    shader_->SetVec3(
-        "uLightColor",
-        point_light_.GetColor()
-    );
+    shader_->SetVec3("uLightPosition", point_light_.GetPosition());
+    shader_->SetVec3("uLightColor", point_light_.GetColor());
+    shader_->SetFloat("uLightIntensity", point_light_.GetIntensity());
+    shader_->SetVec3("uViewPosition", camera_.GetPosition());
 
     /*
      * Grid, оси и Gizmo не должны
@@ -1021,6 +1015,25 @@ void SceneViewport::paintGL()
             continue;
         }
 
+        // Материал именно текущего объекта.
+        const Material& material = object->GetMaterial();
+        const Vec3& material_color = material.GetColor();
+
+        shader_->SetVec4(
+            "uColor",
+            Vec4{
+                material_color.x,
+                material_color.y,
+                material_color.z,
+                1.0f
+            }
+        );
+
+        shader_->SetFloat("uAmbientStrength", material.GetAmbientStrength());
+        shader_->SetFloat("uDiffuseStrength", material.GetDiffuseStrength());
+        shader_->SetFloat("uSpecularStrength", material.GetSpecularStrength());
+        shader_->SetFloat("uShininess", material.GetShininess());
+
         /*
          * Выбранный объект отображается
          * отдельным цветом.
@@ -1029,30 +1042,8 @@ void SceneViewport::paintGL()
          * выделения без дополнительного
          * outline-pass и stencil buffer.
          */
-        if (
-            object ==
-            selected_object_
-        ) {
-            shader_->SetVec4(
-                "uColor",
-                Vec4{
-                    1.0f,
-                    0.68f,
-                    0.20f,
-                    1.0f
-                }
-            );
-        } else {
-            shader_->SetVec4(
-                "uColor",
-                Vec4{
-                    0.67f,
-                    0.76f,
-                    0.91f,
-                    1.0f
-                }
-            );
-        }
+        Vec3 render_color =
+        object->GetMaterial().GetColor();
 
         /*
          * Model Matrix переводит координаты

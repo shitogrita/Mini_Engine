@@ -3,6 +3,7 @@
 #include "Engine/Renderer/Mesh.h"
 #include "Engine/Scene/BoundingBox.h"
 #include "Engine/Scene/Transform.h"
+#include "Engine/Renderer/Material.h"
 
 #include <memory>
 #include <string>
@@ -131,6 +132,8 @@ public:
     const BoundingBox&
     GetBoundingBox() const;
 
+    Material& GetMaterial();
+    const Material& GetMaterial() const;
 
 private:
 
@@ -159,4 +162,6 @@ private:
      * @brief AABB геометрии в Local Space.
      */
     BoundingBox bounding_box_{};
+
+    Material material_{};
 };

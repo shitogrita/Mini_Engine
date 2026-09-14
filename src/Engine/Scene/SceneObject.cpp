@@ -100,3 +100,11 @@ SceneObject::GetBoundingBox() const
 {
 	return bounding_box_;
 }
+
+Material& SceneObject::GetMaterial() {
+	return material_;
+}
+
+const Material& SceneObject::GetMaterial() const {
+	return material_;
+}
