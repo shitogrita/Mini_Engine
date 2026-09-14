@@ -2,6 +2,8 @@
 
 #include "Engine/Math/matrix_types.h"
 
+#include <memory>
+
 /**
  * @brief Описывает визуальные свойства поверхности объекта.
  *
@@ -13,8 +15,18 @@
  * SpecularStrength  сила блика
  * Shininess         размер/резкость блика
  */
+
+class Texture2D;
+
 class Material {
 public:
+
+	void SetDiffuseTexture(std::shared_ptr<Texture2D> texture) { diffuse_texture_ = std::move(texture); }
+
+	const std::shared_ptr<Texture2D>& GetDiffuseTexture() const { return diffuse_texture_; }
+
+	bool HasDiffuseTexture() const { return diffuse_texture_ != nullptr; }
+
 	const Vec3& GetColor() const { return color_; }
 	void SetColor(const Vec3& color) { color_ = color; }
 
@@ -37,4 +49,6 @@ private:
 	float diffuse_strength_{1.0f};
 	float specular_strength_{0.5f};
 	float shininess_{32.0f};
+
+	std::shared_ptr<Texture2D> diffuse_texture_;
 };
