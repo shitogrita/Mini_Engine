@@ -373,11 +373,6 @@ void SceneViewport::initializeGL()
         );
     }
 
-    test_texture_ = std::make_shared<Texture2D>(
-        std::filesystem::path(MINI_ENGINE_RESOURCE_DIR) /
-        "Textures/img.png"
-    );
-
 
     renderer_.Initialize();
 
@@ -3488,10 +3483,6 @@ void SceneViewport::CreatePrimitive(const QString& name, ImportedMeshData mesh_d
     const BoundingBox bounding_box = BoundingBox::FromPoints(mesh_data.positions);
     auto mesh = std::make_shared<Mesh>(mesh_data);
     auto object = std::make_shared<SceneObject>(name.toStdString(), std::move(mesh));
-
-    if (name == "Cube" && test_texture_) {
-        object->GetMaterial().SetDiffuseTexture(test_texture_);
-    }
 
     object->SetBoundingBox(bounding_box);
     object->GetTransform().position = FindSpawnPosition();

@@ -22,7 +22,6 @@
 #include <optional>
 #include <memory>
 
-class Texture2D;
 class QLabel;
 class QKeyEvent;
 class QMouseEvent;
@@ -602,5 +601,4 @@ private:
     bool gizmo_drag_active_ =
     false;
 
-    std::shared_ptr<Texture2D> test_texture_;
 };
