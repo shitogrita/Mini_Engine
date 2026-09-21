@@ -6,8 +6,8 @@
 #include "Engine/Renderer/Material.h"
 
 #include <memory>
+#include <vector>
 #include <string>
-
 
 /**
  * @brief Объект, находящийся внутри Scene.
@@ -22,9 +22,15 @@
  * Сам объект не занимается рендерингом.
  * Его данные используются SceneViewport и Renderer.
  */
+
 class SceneObject {
 public:
 
+    struct SceneRenderPart {
+        std::string name;
+        std::shared_ptr<Mesh> mesh;
+        Material material;
+    };
     /**
      * @brief Создаёт пустой объект сцены.
      */
@@ -36,9 +42,7 @@ public:
      *
      * @param name Имя объекта.
      */
-    explicit SceneObject(
-        std::string name
-    );
+    explicit SceneObject(std::string name);
 
 
     /**
@@ -47,10 +51,7 @@ public:
      * @param name Имя объекта.
      * @param mesh Геометрия объекта.
      */
-    SceneObject(
-        std::string name,
-        std::shared_ptr<Mesh> mesh
-    );
+    SceneObject(std::string name, std::shared_ptr<Mesh> mesh);
 
 
     /**
@@ -65,9 +66,7 @@ public:
      *
      * @param name Новое имя.
      */
-    void SetName(
-        std::string name
-    );
+    void SetName( std::string name);
 
 
     /**
@@ -90,9 +89,7 @@ public:
     /**
      * @brief Устанавливает Mesh объекта.
      */
-    void SetMesh(
-        std::shared_ptr<Mesh> mesh
-    );
+    void SetMesh(std::shared_ptr<Mesh> mesh);
 
 
     /**
@@ -121,10 +118,7 @@ public:
      * BoundingBox хранится до применения Transform,
      * то есть в Local Space Mesh.
      */
-    void SetBoundingBox(
-        const BoundingBox& bounding_box
-    );
-
+    void SetBoundingBox(const BoundingBox& bounding_box);
 
     /**
      * @brief Возвращает локальный BoundingBox.
@@ -134,6 +128,12 @@ public:
 
     Material& GetMaterial();
     const Material& GetMaterial() const;
+
+    void AddRenderPart(std::string name, std::shared_ptr<Mesh> mesh, Material material);
+
+    const std::vector<SceneRenderPart>& GetRenderParts() const;
+
+    bool HasRenderParts() const;
 
 private:
 
@@ -164,4 +164,7 @@ private:
     BoundingBox bounding_box_{};
 
     Material material_{};
+
+    std::vector<SceneRenderPart> render_parts_;
+
 };

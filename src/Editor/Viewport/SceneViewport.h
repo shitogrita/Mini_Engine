@@ -155,20 +155,11 @@ private:
      */
     void CreateLayout();
 
-
     /**
      * @brief Загружает ожидающую OBJ модель
      * в OpenGL и создаёт SceneObject.
      */
     void ImportPendingModel();
-
-
-    /**
-     * @brief Рассчитывает параметры отображения
-     * импортированной модели.
-     */
-    void ApplyModelFit(const std::vector<std::shared_ptr<SceneObject>>& objects, const Vec3& spawn_position);
-
 
     /**
      * @brief Обрабатывает непрерывное
@@ -176,12 +167,10 @@ private:
      */
     void TickInput();
 
-
     /**
      * @brief Обновляет текст режима проекции.
      */
     void UpdateProjectionTitle();
-
 
     /**
      * @brief Обновляет информацию о камере
@@ -251,6 +240,10 @@ private:
      * в которой должен появиться новый объект.
      */
     Vec3 FindSpawnPosition() const;
+    void ApplyModelFit(
+        const std::vector<std::shared_ptr<SceneObject>>& objects,
+        const Vec3& spawn_position
+    );
 
 
     /**

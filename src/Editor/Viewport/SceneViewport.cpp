@@ -688,127 +688,65 @@ void SceneViewport::resizeGL(int width, int height) {
 }
 
 void SceneViewport::paintGL() {
-    renderer_.BeginFrame(
-        background_color_
-    );
+    renderer_.BeginFrame(background_color_);
 
     if (!shader_) {
         return;
     }
 
-    const Matrix4 view =
-        camera_.GetViewMatrix();
+    const Matrix4 view = camera_.GetViewMatrix();
 
-    const float aspect =
-        height() > 0
-            ? static_cast<float>(
-                  width()
-              ) /
-              static_cast<float>(
-                  height()
-              )
-            : 1.0f;
+    const float aspect = height() > 0
+        ? static_cast<float>(width()) / static_cast<float>(height())
+        : 1.0f;
 
     Matrix4 projection{};
 
-    /*
-     * Projection Matrix должна использовать
-     * те же параметры, что и CreateMouseRay().
-     *
-     * Иначе визуально объект будет находиться
-     * в одном месте, а Ray Picking —
-     * рассчитываться по другой геометрии камеры.
-     */
-    if (
-        projection_mode_ ==
-        ProjectionMode::Perspective
-    ) {
-        projection =
-            Projection::Perspective(
-                kPerspectiveFovDegrees,
-                aspect,
-                kNearPlane,
-                kFarPlane
-            );
+    if (projection_mode_ == ProjectionMode::Perspective) {
+        projection = Projection::Perspective(
+            kPerspectiveFovDegrees,
+            aspect,
+            kNearPlane,
+            kFarPlane
+        );
     } else {
-        const float half_height =
-            orthographic_half_height_;
+        const float half_height = orthographic_half_height_;
+        const float half_width = half_height * aspect;
 
-        const float half_width =
-            half_height *
-            aspect;
-
-        projection =
-            Projection::Ortho(
-                -half_width,
-                half_width,
-                -half_height,
-                half_height,
-                kNearPlane,
-                kFarPlane
-            );
+        projection = Projection::Ortho(
+            -half_width,
+            half_width,
+            -half_height,
+            half_height,
+            kNearPlane,
+            kFarPlane
+        );
     }
 
-    const Matrix4 view_projection =
-        AffineTransformation::Multiply4(
-            projection,
-            view
-        );
+    const Matrix4 view_projection = AffineTransformation::Multiply4(
+        projection,
+        view
+    );
 
-    /*
-     * Основной shader.
-     *
-     * Он используется для:
-     * - Grid;
-     * - координатных осей;
-     * - SceneObject;
-     * - Move Gizmo.
-     */
     shader_->Use();
 
-    shader_->SetInt(
-        "uPointMode",
-        0
-    );
+    shader_->SetInt("uPointMode", 0);
+    shader_->SetFloat("uPointSize", 6.0f);
+    shader_->SetFloat("uPointSoft", 0.05f);
+    shader_->SetFloat("uDashFill", 1.0f);
 
-    shader_->SetFloat(
-        "uPointSize",
-        6.0f
-    );
-
-    shader_->SetFloat(
-        "uPointSoft",
-        0.05f
-    );
-
-    shader_->SetFloat(
-        "uDashFill",
-        1.0f
-    );
-
-    /*
-     * Передаём параметры PointLight.
-     *
-     * Они понадобятся только тогда,
-     * когда uLightingEnabled == 1.
-     */
     shader_->SetVec3("uLightPosition", point_light_.GetPosition());
     shader_->SetVec3("uLightColor", point_light_.GetColor());
     shader_->SetFloat("uLightIntensity", point_light_.GetIntensity());
     shader_->SetVec3("uViewPosition", camera_.GetPosition());
 
     /*
-     * Grid, оси и Gizmo не должны
-     * рассчитывать освещение.
+     * Grid и мировые оси не используют освещение
+     * и не должны использовать текстуру предыдущего объекта.
      */
-    shader_->SetInt(
-        "uLightingEnabled",
-        0
-    );
+    shader_->SetInt("uLightingEnabled", 0);
+    shader_->SetInt("uHasDiffuseTexture", 0);
 
-    /*
-     * Grid.
-     */
     if (grid_mesh_) {
         shader_->SetVec4(
             "uColor",
@@ -828,9 +766,6 @@ void SceneViewport::paintGL() {
         );
     }
 
-    /*
-     * Ось X.
-     */
     if (axis_x_mesh_) {
         shader_->SetVec4(
             "uColor",
@@ -850,9 +785,6 @@ void SceneViewport::paintGL() {
         );
     }
 
-    /*
-     * Ось Z.
-     */
     if (axis_z_mesh_) {
         shader_->SetVec4(
             "uColor",
@@ -872,9 +804,6 @@ void SceneViewport::paintGL() {
         );
     }
 
-    /*
-     * Ось Y.
-     */
     if (axis_y_mesh_) {
         shader_->SetVec4(
             "uColor",
@@ -895,173 +824,166 @@ void SceneViewport::paintGL() {
     }
 
     /*
-     * Начиная с этого момента,
-     * основной shader рассчитывает освещение.
-     *
-     * Это относится только к SceneObject.
+     * Всё, что находится в Scene, рисуется
+     * с освещением.
      */
-    shader_->SetInt(
-        "uLightingEnabled",
-        1
-    );
+    shader_->SetInt("uLightingEnabled", 1);
 
-    /*
-     * Каждый SceneObject имеет собственный Transform,
-     * поэтому для него строится отдельная Model Matrix
-     * и отдельная MVP Matrix:
-     *
-     * MVP = Projection * View * Model
-     */
-    for (
-        const std::shared_ptr<SceneObject>& object :
-        scene_.GetObjects()
-    ) {
-        if (!object) {
+    for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
+        if (!object || !object->HasMesh()) {
             continue;
         }
 
-        const std::shared_ptr<const Mesh> mesh =
-            object->GetMesh();
-
-        if (!mesh) {
-            continue;
-        }
-
-        // Материал именно текущего объекта.
-        const Material& material = object->GetMaterial();
-        const Vec3& material_color = material.GetColor();
-
-        shader_->SetVec4(
-            "uColor",
-            Vec4{
-                material_color.x,
-                material_color.y,
-                material_color.z,
-                1.0f
-            }
-        );
-
-        shader_->SetFloat("uAmbientStrength", material.GetAmbientStrength());
-        shader_->SetFloat("uDiffuseStrength", material.GetDiffuseStrength());
-        shader_->SetFloat("uSpecularStrength", material.GetSpecularStrength());
-        shader_->SetFloat("uShininess", material.GetShininess());
-
-        if (material.HasDiffuseTexture()) {
-            material.GetDiffuseTexture()->Bind(0);
-            shader_->SetInt("uDiffuseTexture", 0);
-            shader_->SetInt("uHasDiffuseTexture", 1);
-        } else {
-            shader_->SetInt("uHasDiffuseTexture", 0);
-        }
-
         /*
-         * Выбранный объект отображается
-         * отдельным цветом.
+         * Transform принадлежит всему SceneObject.
          *
-         * Пока это простой вариант визуального
-         * выделения без дополнительного
-         * outline-pass и stencil buffer.
+         * Для импортированной модели это означает,
+         * что все её material parts используют
+         * одну Position / Rotation / Scale.
          */
-        Vec3 render_color =
-        object->GetMaterial().GetColor();
+        const Matrix4 model = object->GetTransform().GetModelMatrix();
 
-        /*
-         * Model Matrix переводит координаты
-         * объекта из Local Space в World Space.
-         */
-        const Matrix4 model =
-            object->
-                GetTransform().
-                GetModelMatrix();
+        shader_->SetMat4("uModel", model);
 
-        /*
-         * Для расчёта освещения shader должен
-         * отдельно знать Model Matrix.
-         *
-         * Одного uMVP недостаточно:
-         * нам нужна мировая позиция поверхности
-         * и корректно преобразованная Normal.
-         */
-        shader_->SetMat4(
-            "uModel",
+        const Matrix4 view_model = AffineTransformation::Multiply4(
+            view,
             model
         );
 
-        const Matrix4 view_model =
-            AffineTransformation::Multiply4(
-                view,
-                model
-            );
-
-        const Matrix4 mvp =
-            AffineTransformation::Multiply4(
-                projection,
-                view_model
-            );
-
-        renderer_.Draw(
-            *mesh,
-            *shader_,
-            mvp
+        const Matrix4 mvp = AffineTransformation::Multiply4(
+            projection,
+            view_model
         );
+
+        /*
+         * Одна функция используется и для обычных
+         * объектов с одним Mesh, и для импортированной
+         * модели с несколькими RenderPart.
+         */
+        const auto draw_part = [this, &object, &mvp](const Mesh& mesh, const Material& material) {
+            Vec3 render_color = material.GetColor();
+
+            /*
+             * Немного подсвечиваем выбранный SceneObject.
+             *
+             * Если модель состоит из нескольких частей,
+             * подсветятся все её части.
+             */
+            if (object == selected_object_) {
+                render_color.x = std::min(render_color.x + 0.15f, 1.0f);
+                render_color.y = std::min(render_color.y + 0.10f, 1.0f);
+            }
+
+            shader_->SetVec4(
+                "uColor",
+                Vec4{
+                    render_color.x,
+                    render_color.y,
+                    render_color.z,
+                    1.0f
+                }
+            );
+
+            shader_->SetFloat(
+                "uAmbientStrength",
+                material.GetAmbientStrength()
+            );
+
+            shader_->SetFloat(
+                "uDiffuseStrength",
+                material.GetDiffuseStrength()
+            );
+
+            shader_->SetFloat(
+                "uSpecularStrength",
+                material.GetSpecularStrength()
+            );
+
+            shader_->SetFloat(
+                "uShininess",
+                material.GetShininess()
+            );
+
+            if (material.HasDiffuseTexture()) {
+                material.GetDiffuseTexture()->Bind(0);
+                shader_->SetInt("uDiffuseTexture", 0);
+                shader_->SetInt("uHasDiffuseTexture", 1);
+            } else {
+                shader_->SetInt("uHasDiffuseTexture", 0);
+            }
+
+            renderer_.Draw(
+                mesh,
+                *shader_,
+                mvp
+            );
+        };
+
+        /*
+         * Импортированная многоматериальная модель.
+         *
+         * SceneObject один, но внутри находится
+         * несколько Mesh + Material.
+         */
+        if (object->HasRenderParts()) {
+            for (const SceneObject::SceneRenderPart& part : object->GetRenderParts()) {
+                if (!part.mesh) {
+                    continue;
+                }
+
+                draw_part(
+                    *part.mesh,
+                    part.material
+                );
+            }
+
+            continue;
+        }
+
+        /*
+         * Старый вариант SceneObject.
+         *
+         * Он остаётся нужен для Cube, Plane, Sphere
+         * и других объектов с одним Mesh.
+         */
+        const std::shared_ptr<const Mesh> mesh = object->GetMesh();
+
+        if (mesh) {
+            draw_part(
+                *mesh,
+                object->GetMaterial()
+            );
+        }
     }
 
     /*
-     * Освещение обычных объектов закончилось.
-     *
-     * Всё, что рисуется дальше через basic shader,
-     * снова не должно подвергаться освещению.
+     * Дальше освещение basic shader уже не нужно.
      */
-    shader_->SetInt(
-        "uLightingEnabled",
-        0
-    );
+    shader_->SetInt("uLightingEnabled", 0);
+    shader_->SetInt("uHasDiffuseTexture", 0);
 
     /*
      * Визуализация PointLight.
-     *
-     * PointLight сам по себе — это только данные:
-     * position + color.
-     *
-     * Маленькая Sphere лишь показывает пользователю,
-     * где источник находится в сцене.
      */
-    if (
-        light_shader_ &&
-        light_mesh_
-    ) {
-        const Vec3& light_position =
-            point_light_.GetPosition();
+    if (light_shader_ && light_mesh_) {
+        const Vec3& light_position = point_light_.GetPosition();
 
-        /*
-         * Сфера источника света создаётся около origin,
-         * поэтому переносим её в позицию PointLight.
-         */
-        const Matrix4 light_model =
-            AffineTransformation::Translation4(
-                light_position.x,
-                light_position.y,
-                light_position.z
-            );
+        const Matrix4 light_model = AffineTransformation::Translation4(
+            light_position.x,
+            light_position.y,
+            light_position.z
+        );
 
-        const Matrix4 light_view_model =
-            AffineTransformation::Multiply4(
-                view,
-                light_model
-            );
+        const Matrix4 light_view_model = AffineTransformation::Multiply4(
+            view,
+            light_model
+        );
 
-        const Matrix4 light_mvp =
-            AffineTransformation::Multiply4(
-                projection,
-                light_view_model
-            );
+        const Matrix4 light_mvp = AffineTransformation::Multiply4(
+            projection,
+            light_view_model
+        );
 
-        /*
-         * Переключаем OpenGL на отдельный shader лампы.
-         *
-         * Этот shader не рассчитывает освещение:
-         * Sphere всегда отображается цветом PointLight.
-         */
         light_shader_->Use();
 
         light_shader_->SetVec3(
@@ -1077,22 +999,15 @@ void SceneViewport::paintGL() {
     }
 
     /*
-     * После light_shader_ обязательно возвращаем
-     * основной shader.
-     *
-     * Иначе следующий Gizmo попытался бы рисоваться
-     * через lamp shader.
+     * После lamp shader возвращаем основной shader,
+     * потому что Gizmo рисуется через него.
      */
     shader_->Use();
-
-    shader_->SetInt(
-        "uLightingEnabled",
-        0
-    );
+    shader_->SetInt("uLightingEnabled", 0);
+    shader_->SetInt("uHasDiffuseTexture", 0);
 
     /*
-     * Move Gizmo отображается только тогда,
-     * когда в сцене выбран объект.
+     * Move Gizmo.
      */
     if (
         selected_object_ &&
@@ -1100,42 +1015,25 @@ void SceneViewport::paintGL() {
         gizmo_y_mesh_ &&
         gizmo_z_mesh_
     ) {
-        /*
-         * Gizmo должен находиться в origin
-         * выбранного SceneObject.
-         *
-         * Для этого используем только Position объекта.
-         * Rotation и Scale самого объекта на gizmo
-         * пока не влияют: оси gizmo ориентированы
-         * относительно мировых X, Y и Z.
-         */
         const Vec3 gizmo_position =
-            selected_object_->
-                GetTransform().
-                position;
+            selected_object_->GetTransform().position;
 
-        const Matrix4 gizmo_model =
-            AffineTransformation::Translation4(
-                gizmo_position.x,
-                gizmo_position.y,
-                gizmo_position.z
-            );
+        const Matrix4 gizmo_model = AffineTransformation::Translation4(
+            gizmo_position.x,
+            gizmo_position.y,
+            gizmo_position.z
+        );
 
-        const Matrix4 gizmo_view_model =
-            AffineTransformation::Multiply4(
-                view,
-                gizmo_model
-            );
+        const Matrix4 gizmo_view_model = AffineTransformation::Multiply4(
+            view,
+            gizmo_model
+        );
 
-        const Matrix4 gizmo_mvp =
-            AffineTransformation::Multiply4(
-                projection,
-                gizmo_view_model
-            );
+        const Matrix4 gizmo_mvp = AffineTransformation::Multiply4(
+            projection,
+            gizmo_view_model
+        );
 
-        /*
-         * X — красная ось.
-         */
         shader_->SetVec4(
             "uColor",
             Vec4{
@@ -1153,9 +1051,6 @@ void SceneViewport::paintGL() {
             4.0f
         );
 
-        /*
-         * Y — зелёная ось.
-         */
         shader_->SetVec4(
             "uColor",
             Vec4{
@@ -1173,9 +1068,6 @@ void SceneViewport::paintGL() {
             4.0f
         );
 
-        /*
-         * Z — синяя ось.
-         */
         shader_->SetVec4(
             "uColor",
             Vec4{
@@ -1300,19 +1192,6 @@ void SceneViewport::ImportPendingModel() {
     const QString model_path = pending_model_path_;
     pending_model_path_.clear();
 
-    /*
-     * ModelImporter выполняет всю цепочку:
-     *
-     * OBJ + MTL
-     * -> ImportedModelData
-     * -> Mesh
-     * -> Material
-     * -> Texture2D
-     * -> SceneObject.
-     *
-     * Один OBJ может вернуть несколько SceneObject,
-     * если модель использует несколько материалов.
-     */
     std::vector<std::shared_ptr<SceneObject>> objects =
         ModelImporter::ImportObj(
             model_path.toStdString(),
@@ -1334,13 +1213,6 @@ void SceneViewport::ImportPendingModel() {
         return;
     }
 
-    /*
-     * Все части одного OBJ должны появиться
-     * в одном месте.
-     *
-     * Поэтому FindSpawnPosition() вызываем один раз,
-     * а не отдельно для каждой части материала.
-     */
     const Vec3 spawn_position = FindSpawnPosition();
 
     for (const std::shared_ptr<SceneObject>& object : objects) {
@@ -1348,21 +1220,23 @@ void SceneViewport::ImportPendingModel() {
             continue;
         }
 
-        object->GetTransform().position = spawn_position;
+        Transform& transform = object->GetTransform();
+
+        transform.position = spawn_position;
+        transform.rotation = Vec3{0.0f, 0.0f, 0.0f};
+        transform.scale = Vec3{1.0f, 1.0f, 1.0f};
 
         scene_.AddObject(object);
     }
 
     content_label_->hide();
 
-    /*
-     * После импорта выбираем первую часть модели.
-     */
     selected_object_ = objects.front();
 
     UpdateProjectionTitle();
     UpdateCoordinatesLabel();
     NotifySelectionChanged();
+    update();
 }
 
 Vec3 SceneViewport::FindSpawnPosition() const {
@@ -1457,8 +1331,12 @@ void SceneViewport::ArrangeSceneObjects() {
     }
 }
 
-void SceneViewport::ApplyModelFit(const std::vector<std::shared_ptr<SceneObject>>& objects, const Vec3& spawn_position) {
+void SceneViewport::ApplyModelFit(
+    const std::vector<std::shared_ptr<SceneObject>>& objects,
+    const Vec3& spawn_position) {
+
     bool has_bounds = false;
+
     Vec3 minimum{};
     Vec3 maximum{};
 
@@ -1468,6 +1346,7 @@ void SceneViewport::ApplyModelFit(const std::vector<std::shared_ptr<SceneObject>
         }
 
         const BoundingBox& box = object->GetBoundingBox();
+
         const Vec3 center = box.GetCenter();
         const Vec3 size = box.GetSize();
 
@@ -1512,7 +1391,12 @@ void SceneViewport::ApplyModelFit(const std::vector<std::shared_ptr<SceneObject>
     const float size_x = maximum.x - minimum.x;
     const float size_y = maximum.y - minimum.y;
     const float size_z = maximum.z - minimum.z;
-    const float maximum_size = std::max({size_x, size_y, size_z});
+
+    const float maximum_size = std::max({
+        size_x,
+        size_y,
+        size_z
+    });
 
     float fit_scale = 1.0f;
 
@@ -1538,6 +1422,7 @@ void SceneViewport::ApplyModelFit(const std::vector<std::shared_ptr<SceneObject>
         }
 
         Transform& transform = object->GetTransform();
+
         transform.position = model_position;
         transform.rotation = Vec3{0.0f, 0.0f, 0.0f};
         transform.scale = model_scale;

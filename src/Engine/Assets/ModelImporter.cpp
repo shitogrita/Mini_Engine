@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <iostream>
 
 /**
  * @brief Ищет материал по имени среди материалов,
@@ -97,99 +98,48 @@ std::vector<std::shared_ptr<SceneObject>> ModelImporter::ImportObj(
     const std::filesystem::path& path,
     TextureManager& texture_manager) {
 
-    /*
-     * ObjParser читает OBJ и связанный с ним MTL.
-     *
-     * На этом этапе данные ещё находятся на CPU,
-     * OpenGL-ресурсы Mesh ещё не созданы.
-     */
     ImportedModelData model_data;
 
     if (!ObjParser::Parse(path.string(), model_data)) {
         return {};
     }
 
-    std::vector<std::shared_ptr<SceneObject>> objects;
-    objects.reserve(model_data.meshes.size());
+    auto object = std::make_shared<SceneObject>(path.stem().string());
 
-    // Например Models/house.obj -> house.
-    const std::string model_name = path.stem().string();
+    std::vector<Vec3> bounding_points;
 
-    for (std::size_t i = 0; i < model_data.meshes.size(); ++i) {
-        const ImportedMeshPart& part = model_data.meshes[i];
-
-        /*
-         * Пустую часть модели создавать не нужно.
-         */
-        if (part.mesh.render_vertices.empty() ||
-            part.mesh.render_indices.empty()) {
+    for (const ImportedMeshPart& part : model_data.meshes) {
+        if (part.mesh.render_vertices.empty() || part.mesh.render_indices.empty()) {
             continue;
         }
 
-        /*
-         * ImportedMeshData превращается в настоящий Mesh.
-         *
-         * В конструкторе Mesh создаются OpenGL-ресурсы:
-         * VAO, VBO и EBO.
-         */
         auto mesh = std::make_shared<Mesh>(part.mesh);
 
-        /*
-         * Ищем описание материала по имени,
-         * полученному из команды usemtl.
-         */
         const ImportedMaterialData* imported_material =
             FindMaterial(model_data.materials, part.material_name);
 
-        /*
-         * Создаём runtime-материал движка.
-         */
-        Material material =
-            CreateMaterial(imported_material, texture_manager);
+        Material material = CreateMaterial(imported_material, texture_manager);
 
-        /*
-         * Формируем имя SceneObject.
-         *
-         * Например:
-         *
-         * house.obj
-         * usemtl Wood
-         *
-         * ->
-         *
-         * house_Wood
-         */
-        std::string object_name = model_name;
+        object->AddRenderPart(
+            part.material_name.empty()
+                ? "Material"
+                : part.material_name,
+            std::move(mesh),
+            std::move(material)
+        );
 
-        if (!part.material_name.empty()) {
-            object_name += "_" + part.material_name;
-        } else if (model_data.meshes.size() > 1) {
-            object_name += "_" + std::to_string(i);
+        for (const Vertex& vertex : part.mesh.render_vertices) {
+            bounding_points.push_back(vertex.position);
         }
-
-        /*
-         * Создаём SceneObject сразу с готовым Mesh.
-         */
-        auto object =
-            std::make_shared<SceneObject>(object_name, mesh);
-
-        /*
-         * GetMaterial() возвращает Material&,
-         * поэтому можем записать созданный материал напрямую.
-         */
-        object->GetMaterial() = material;
-
-        /*
-         * BoundingBox рассчитываем именно по render_vertices
-         * этой части модели.
-         *
-         * Поэтому разные части многоматериальной модели
-         * получают собственные корректные BoundingBox.
-         */
-        object->SetBoundingBox(CreateBoundingBox(part.mesh));
-
-        objects.push_back(object);
     }
 
-    return objects;
+    if (!bounding_points.empty()) {
+        object->SetBoundingBox(BoundingBox::FromPoints(bounding_points));
+    }
+
+    if (!object->HasMesh()) {
+        return {};
+    }
+
+    return {object};
 }
