@@ -13,6 +13,7 @@ add_library(
         Assets/TextureManager.cpp
         Assets/TextureManager.h
         Assets/ImportedMaterialData.h
+        Assets/ImportedModelData.h
         Assets/MtlParser.cpp
         Assets/MtlParser.h
 
