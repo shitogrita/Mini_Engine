@@ -8,6 +8,8 @@
 #include <QGridLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -93,6 +95,10 @@ void InspectorPanel::CreateLayout() {
     material_combo_ = new QComboBox(this);
 
     material_color_button_ = new QPushButton("Select Color", this);
+    material_texture_button_ = new QPushButton("Select Texture...", this);
+
+    material_texture_name_ = new QLabel("None", this);
+    material_texture_name_->setWordWrap(true);
 
     material_ambient_ = CreateMaterialSpinBox(0.0, 1.0, 0.05);
     material_diffuse_ = CreateMaterialSpinBox(0.0, 1.0, 0.05);
@@ -105,17 +111,23 @@ void InspectorPanel::CreateLayout() {
     material_layout->addWidget(new QLabel("Color"), 1, 0);
     material_layout->addWidget(material_color_button_, 1, 1);
 
-    material_layout->addWidget(new QLabel("Ambient"), 2, 0);
-    material_layout->addWidget(material_ambient_, 2, 1);
+    material_layout->addWidget(new QLabel("Texture"), 2, 0);
+    material_layout->addWidget(material_texture_button_, 2, 1);
 
-    material_layout->addWidget(new QLabel("Diffuse"), 3, 0);
-    material_layout->addWidget(material_diffuse_, 3, 1);
+    material_layout->addWidget(new QLabel(""), 3, 0);
+    material_layout->addWidget(material_texture_name_, 3, 1);
 
-    material_layout->addWidget(new QLabel("Specular"), 4, 0);
-    material_layout->addWidget(material_specular_, 4, 1);
+    material_layout->addWidget(new QLabel("Ambient"), 4, 0);
+    material_layout->addWidget(material_ambient_, 4, 1);
 
-    material_layout->addWidget(new QLabel("Shininess"), 5, 0);
-    material_layout->addWidget(material_shininess_, 5, 1);
+    material_layout->addWidget(new QLabel("Diffuse"), 5, 0);
+    material_layout->addWidget(material_diffuse_, 5, 1);
+
+    material_layout->addWidget(new QLabel("Specular"), 6, 0);
+    material_layout->addWidget(material_specular_, 6, 1);
+
+    material_layout->addWidget(new QLabel("Shininess"), 7, 0);
+    material_layout->addWidget(material_shininess_, 7, 1);
 
     information_label_ = new QLabel(this);
 
@@ -241,6 +253,45 @@ void InspectorPanel::CreateLayout() {
         this,
         [update_transform](double) {
             update_transform();
+        }
+    );
+
+    connect(
+        material_texture_button_,
+        &QPushButton::clicked,
+        this,
+        [this]() {
+            Material* material = GetSelectedMaterial();
+
+            if (!material) {
+                return;
+            }
+
+            const QString file_path = QFileDialog::getOpenFileName(
+                this,
+                "Select Texture",
+                QString(),
+                "Images (*.png *.jpg *.jpeg *.bmp)"
+            );
+
+            if (file_path.isEmpty()) {
+                return;
+            }
+
+            if (texture_changed_callback_) {
+                texture_changed_callback_(
+                    *material,
+                    file_path
+                );
+            }
+
+            material_texture_name_->setText(
+                QFileInfo(file_path).fileName()
+            );
+
+            if (transform_changed_callback_) {
+                transform_changed_callback_();
+            }
         }
     );
 
@@ -445,6 +496,9 @@ void InspectorPanel::SetSelectedObject(std::shared_ptr<SceneObject> object) {
     material_specular_->show();
     material_shininess_->show();
 
+    material_texture_button_->show();
+    material_texture_name_->show();
+
     UpdateTransformFields();
     UpdateMaterialList();
 }
@@ -584,6 +638,11 @@ void InspectorPanel::UpdateMaterialFields() {
     );
 
     updating_fields_ = false;
+    if (material->HasDiffuseTexture()) {
+        material_texture_name_->setText("Texture assigned");
+    } else {
+        material_texture_name_->setText("None");
+    }
 }
 
 void InspectorPanel::SetTransformChangedCallback(
@@ -620,9 +679,20 @@ void InspectorPanel::ClearSelection() {
     material_specular_->hide();
     material_shininess_->hide();
 
+    material_texture_button_->hide();
+    material_texture_name_->hide();
+
+    material_texture_name_->setText("None");
+
     material_combo_->clear();
 
     information_label_->setText(
         "Select an object in Hierarchy to inspect it."
     );
+}
+
+void InspectorPanel::SetTextureChangedCallback(
+    std::function<void(Material&, const QString&)> callback) {
+
+    texture_changed_callback_ = std::move(callback);
 }

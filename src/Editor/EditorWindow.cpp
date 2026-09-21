@@ -335,14 +335,15 @@ void EditorWindow::CreateDockWidgets() {
     // в Inspector, Transform объекта уже изменяется там.
     // Здесь только просим viewport перерисовать сцену,
     // чтобы изменение сразу стало видно.
-    inspector_panel_->
-        SetTransformChangedCallback(
-            [this]()
-            {
-                scene_viewport_->
-                    update();
-            }
-        );
+    inspector_panel_->SetTextureChangedCallback(
+        [this](Material& material, const QString& file_path) {
+            scene_viewport_->SetMaterialTexture(
+                material,
+                file_path
+            );
+        }
+    );
+
     scene_viewport_->
     SetTransformChangedCallback(
         [this]()

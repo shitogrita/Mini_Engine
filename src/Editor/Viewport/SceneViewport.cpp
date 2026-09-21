@@ -2938,3 +2938,29 @@ void SceneViewport::ResetInputState() {
     gizmo_drag_active_ = false;
     active_gizmo_axis_ = GizmoAxis::None;
 }
+
+void SceneViewport::SetMaterialTexture(
+    Material& material,
+    const QString& file_path) {
+
+    if (file_path.isEmpty()) {
+        return;
+    }
+
+    makeCurrent();
+
+    std::shared_ptr<Texture2D> texture =
+        texture_manager_.Load(
+            file_path.toStdString()
+        );
+
+    if (texture) {
+        material.SetDiffuseTexture(
+            std::move(texture)
+        );
+    }
+
+    doneCurrent();
+
+    update();
+}

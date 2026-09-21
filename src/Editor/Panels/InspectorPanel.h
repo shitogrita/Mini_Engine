@@ -14,6 +14,7 @@ class QComboBox;
 
 class InspectorPanel : public QWidget {
 public:
+    class QLineEdit;
     explicit InspectorPanel(QWidget* parent = nullptr);
 
     void SetObjectName(const QString& object_name);
@@ -22,6 +23,8 @@ public:
 
     void SetTransformChangedCallback(std::function<void()> callback);
     void RefreshTransformFields();
+
+    void SetTextureChangedCallback(std::function<void(Material&, const QString&)> callback);
 
 private:
     void CreateLayout();
@@ -66,6 +69,12 @@ private:
     QDoubleSpinBox* material_diffuse_ = nullptr;
     QDoubleSpinBox* material_specular_ = nullptr;
     QDoubleSpinBox* material_shininess_ = nullptr;
+
+    QPushButton* material_texture_button_ = nullptr;
+    QLabel* material_texture_name_ = nullptr;
+
+    std::function<void(Material&, const QString&)> texture_changed_callback_;
+
 
     std::shared_ptr<SceneObject> selected_object_;
 

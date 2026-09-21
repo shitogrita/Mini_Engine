@@ -147,6 +147,8 @@ public:
 
     void ClearScene();
 
+    void SetMaterialTexture(Material& material, const QString& file_path);
+
 
 private:
 
