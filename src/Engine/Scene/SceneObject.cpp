@@ -91,3 +91,6 @@ bool SceneObject::HasRenderParts() const {
 	return !render_parts_.empty();
 }
 
+std::vector<SceneObject::SceneRenderPart>& SceneObject::GetRenderParts() {
+	return render_parts_;
+}

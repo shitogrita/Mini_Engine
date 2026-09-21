@@ -131,6 +131,7 @@ public:
 
     void AddRenderPart(std::string name, std::shared_ptr<Mesh> mesh, Material material);
 
+    std::vector<SceneRenderPart>& GetRenderParts();
     const std::vector<SceneRenderPart>& GetRenderParts() const;
 
     bool HasRenderParts() const;
