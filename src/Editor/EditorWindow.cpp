@@ -15,9 +15,7 @@
 #include <QMenu>
 #include <QMenuBar>
 
-EditorWindow::EditorWindow(QWidget* parent)
-    : QMainWindow(parent)
-{
+EditorWindow::EditorWindow(QWidget* parent) : QMainWindow(parent) {
     ConfigureWindow();
     CreateActions();
     CreateMenuBar();
@@ -26,8 +24,7 @@ EditorWindow::EditorWindow(QWidget* parent)
     ApplyEditorStyle();
 }
 
-void EditorWindow::ConfigureWindow()
-{
+void EditorWindow::ConfigureWindow() {
     setWindowTitle("Mini Engine Editor");
     resize(1440, 900);
 
@@ -42,27 +39,18 @@ void EditorWindow::ConfigureWindow()
     setCentralWidget(scene_viewport_);
 }
 
-void EditorWindow::CreateActions()
-{
+void EditorWindow::CreateActions() {
     open_model_action_ = new QAction("Open Model...", this);
-    open_model_action_->setShortcut(
-        QKeySequence::Open
-    );
+    open_model_action_->setShortcut(QKeySequence::Open);
 
     exit_action_ = new QAction("Exit", this);
-    exit_action_->setShortcut(
-        QKeySequence::Quit
-    );
+    exit_action_->setShortcut(QKeySequence::Quit);
 
     undo_action_ = new QAction("Undo", this);
-    undo_action_->setShortcut(
-        QKeySequence::Undo
-    );
+    undo_action_->setShortcut(QKeySequence::Undo);
 
     redo_action_ = new QAction("Redo", this);
-    redo_action_->setShortcut(
-        QKeySequence::Redo
-    );
+    redo_action_->setShortcut(QKeySequence::Redo);
 
     import_asset_action_ = new QAction("Import Asset...", this);
     create_material_action_ = new QAction("Create Material", this);
@@ -70,6 +58,7 @@ void EditorWindow::CreateActions()
     create_empty_action_ = new QAction("Create Empty", this);
     create_cube_action_ = new QAction("Create Cube", this);
     create_light_action_ = new QAction("Create Light", this);
+    clear_scene_action_ = new QAction("Clear Scene", this);
 
     show_hierarchy_action_ = new QAction("Hierarchy", this);
     show_inspector_action_ = new QAction("Inspector", this);
@@ -85,38 +74,37 @@ void EditorWindow::CreateActions()
 
     about_action_ = new QAction("About", this);
 
+    connect(open_model_action_, &QAction::triggered, this, &EditorWindow::OpenModelFile);
+    connect(exit_action_, &QAction::triggered, this, &QWidget::close);
     connect(
-        open_model_action_,
-        &QAction::triggered,
-        this,
-        &EditorWindow::OpenModelFile
-    );
+     clear_scene_action_,
+     &QAction::triggered,
+     this,
+     [this]() {
+         if (scene_viewport_) {
+             scene_viewport_->ClearScene();
+         }
 
-    connect(
-        exit_action_,
-        &QAction::triggered,
-        this,
-        &QWidget::close
-    );
+         if (hierarchy_panel_) {
+             hierarchy_panel_->Refresh();
+         }
 
-    connect(
-        about_action_,
-        &QAction::triggered,
-        this,
-        [this]()
-        {
-            QMessageBox::about(
-                this,
-                "About Mini Engine Editor",
-                "Mini Engine Editor\n"
-                "Qt frontend for the game engine."
-            );
-        }
-    );
+         if (inspector_panel_) {
+             inspector_panel_->ClearSelection();
+         }
+
+         if (project_panel_) {
+             project_panel_->ClearImportedFiles();
+         }
+         }
+     );
+
+    connect(about_action_, &QAction::triggered, this, [this]() {
+        QMessageBox::about(this, "About Mini Engine Editor", "Mini Engine Editor\nQt frontend for the game engine.");
+    });
 }
 
-void EditorWindow::CreateMenuBar()
-{
+void EditorWindow::CreateMenuBar() {
     QMenu* file_menu = menuBar()->addMenu("File");
     file_menu->addAction(open_model_action_);
     file_menu->addSeparator();
@@ -135,6 +123,9 @@ void EditorWindow::CreateMenuBar()
     game_object_menu->addAction(create_cube_action_);
     game_object_menu->addAction(create_light_action_);
 
+    QMenu* scene_menu = menuBar()->addMenu("Scene");
+    scene_menu->addAction(clear_scene_action_);
+
     QMenu* window_menu = menuBar()->addMenu("Window");
     window_menu->addAction(show_hierarchy_action_);
     window_menu->addAction(show_inspector_action_);
@@ -144,8 +135,7 @@ void EditorWindow::CreateMenuBar()
     help_menu->addAction(about_action_);
 }
 
-void EditorWindow::CreateDockWidgets()
-{
+void EditorWindow::CreateDockWidgets() {
     hierarchy_dock_ =
         new QDockWidget(
             "Hierarchy",
@@ -387,13 +377,11 @@ void EditorWindow::CreateDockWidgets()
     });
 }
 
-void EditorWindow::CreateStatusBar()
-{
+void EditorWindow::CreateStatusBar() {
     statusBar()->showMessage("Ready");
 }
 
-void EditorWindow::OpenModelFile()
-{
+void EditorWindow::OpenModelFile() {
     const QString file_path =
         QFileDialog::getOpenFileName(
             this,
@@ -417,8 +405,32 @@ void EditorWindow::OpenModelFile()
     );
 }
 
-void EditorWindow::ApplyEditorStyle()
-{
+void EditorWindow::ClearScene() {
+    const QMessageBox::StandardButton answer = QMessageBox::question(
+        this,
+        "Clear Scene",
+        "Delete all objects from the scene?",
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+
+    scene_viewport_->ClearScene();
+
+    hierarchy_panel_->Refresh();
+    hierarchy_panel_->SetSelectedObject(nullptr);
+
+    inspector_panel_->SetSelectedObject(nullptr);
+
+    project_panel_->ClearImportedFiles();
+
+    statusBar()->showMessage("Scene cleared");
+}
+
+void EditorWindow::ApplyEditorStyle() {
     setStyleSheet(
         R"(
             QMainWindow {

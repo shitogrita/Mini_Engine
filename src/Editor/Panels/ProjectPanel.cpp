@@ -6,143 +6,122 @@
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
-ProjectPanel::ProjectPanel(QWidget* parent)
-    : QWidget(parent)
-{
+ProjectPanel::ProjectPanel(QWidget* parent) : QWidget(parent) {
     CreateLayout();
-    FillPlaceholderFolders();
+    CreateTree();
+
+    connect(search_line_, &QLineEdit::textChanged, this, &ProjectPanel::FilterTree);
 }
 
-void ProjectPanel::CreateLayout()
-{
-    QVBoxLayout* layout = new QVBoxLayout(this);
+void ProjectPanel::CreateLayout() {
+    auto* layout = new QVBoxLayout(this);
 
-    layout->setContentsMargins(6, 6, 6, 6);
-    layout->setSpacing(6);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
 
-    search_field_ = new QLineEdit(this);
-    search_field_->setPlaceholderText("Search assets...");
+    search_line_ = new QLineEdit(this);
+    search_line_->setPlaceholderText("Search assets...");
+    search_line_->setClearButtonEnabled(true);
 
     tree_ = new QTreeWidget(this);
-
     tree_->setHeaderHidden(true);
-    tree_->setIndentation(18);
+    tree_->setIndentation(20);
 
-    layout->addWidget(search_field_);
+    layout->addWidget(search_line_);
     layout->addWidget(tree_);
-
-    connect(
-        search_field_,
-        &QLineEdit::textChanged,
-        this,
-        [this](const QString& text)
-        {
-            const QString normalized_text =
-                text.trimmed();
-
-            for (
-                int index = 0;
-                index < tree_->topLevelItemCount();
-                ++index
-            ) {
-                QTreeWidgetItem* item =
-                    tree_->topLevelItem(index);
-
-                for (
-                    int child_index = 0;
-                    child_index < item->childCount();
-                    ++child_index
-                ) {
-                    QTreeWidgetItem* child =
-                        item->child(child_index);
-
-                    const bool matches =
-                        normalized_text.isEmpty() ||
-                        child->text(0).contains(
-                            normalized_text,
-                            Qt::CaseInsensitive
-                        );
-
-                    child->setHidden(!matches);
-                }
-            }
-        }
-    );
 }
 
-void ProjectPanel::FillPlaceholderFolders()
-{
-    assets_item_ =
-        new QTreeWidgetItem(QStringList{"Assets"});
+void ProjectPanel::CreateTree() {
+    assets_item_ = new QTreeWidgetItem(tree_);
+    assets_item_->setText(0, "Assets");
 
-    models_item_ =
-        new QTreeWidgetItem(QStringList{"Models"});
+    models_item_ = new QTreeWidgetItem(assets_item_);
+    models_item_->setText(0, "Models");
 
-    QTreeWidgetItem* textures_item =
-        new QTreeWidgetItem(QStringList{"Textures"});
+    textures_item_ = new QTreeWidgetItem(assets_item_);
+    textures_item_->setText(0, "Textures");
 
-    QTreeWidgetItem* shaders_item =
-        new QTreeWidgetItem(QStringList{"Shaders"});
+    shaders_item_ = new QTreeWidgetItem(assets_item_);
+    shaders_item_->setText(0, "Shaders");
 
-    QTreeWidgetItem* materials_item =
-        new QTreeWidgetItem(QStringList{"Materials"});
-
-    assets_item_->addChild(models_item_);
-    assets_item_->addChild(textures_item);
-    assets_item_->addChild(shaders_item);
-    assets_item_->addChild(materials_item);
-
-    tree_->addTopLevelItem(assets_item_);
+    materials_item_ = new QTreeWidgetItem(assets_item_);
+    materials_item_->setText(0, "Materials");
 
     assets_item_->setExpanded(true);
     models_item_->setExpanded(true);
 }
 
-void ProjectPanel::AddImportedFile(
-    const QString& file_path
-)
-{
-    QTreeWidgetItem* models_folder =
-        FindOrCreateModelsFolder();
+void ProjectPanel::AddImportedFile(const QString& file_path) {
+    if (!models_item_) {
+        return;
+    }
 
     const QFileInfo file_info(file_path);
-    const QString file_name = file_info.fileName();
+    const QString absolute_path = file_info.absoluteFilePath();
 
-    for (
-        int index = 0;
-        index < models_folder->childCount();
-        ++index
-    ) {
-        QTreeWidgetItem* child =
-            models_folder->child(index);
+    /*
+     * Не добавляем один и тот же файл несколько раз
+     * в Project Panel.
+     */
+    for (int i = 0; i < models_item_->childCount(); ++i) {
+        QTreeWidgetItem* item = models_item_->child(i);
 
-        if (child->text(0) == file_name) {
-            tree_->setCurrentItem(child);
+        if (item && item->data(0, Qt::UserRole).toString() == absolute_path) {
+            tree_->setCurrentItem(item);
             return;
         }
     }
 
-    QTreeWidgetItem* file_item =
-        new QTreeWidgetItem(QStringList{file_name});
+    auto* item = new QTreeWidgetItem(models_item_);
 
-    file_item->setToolTip(0, file_path);
+    item->setText(0, file_info.fileName());
+    item->setData(0, Qt::UserRole, absolute_path);
+    item->setToolTip(0, absolute_path);
 
-    models_folder->addChild(file_item);
-    models_folder->setExpanded(true);
-
-    tree_->setCurrentItem(file_item);
+    models_item_->setExpanded(true);
+    tree_->setCurrentItem(item);
 }
 
-QTreeWidgetItem* ProjectPanel::FindOrCreateModelsFolder()
-{
-    if (models_item_ != nullptr) {
-        return models_item_;
+void ProjectPanel::ClearImportedFiles() {
+    if (!models_item_) {
+        return;
     }
 
-    models_item_ =
-        new QTreeWidgetItem(QStringList{"Models"});
+    /*
+     * takeChild() отсоединяет item от дерева,
+     * delete уничтожает его.
+     */
+    while (models_item_->childCount() > 0) {
+        delete models_item_->takeChild(0);
+    }
 
-    assets_item_->addChild(models_item_);
+    tree_->clearSelection();
 
-    return models_item_;
+    if (search_line_) {
+        search_line_->clear();
+    }
+
+    models_item_->setExpanded(true);
+}
+
+void ProjectPanel::FilterTree(const QString& text) {
+    if (!models_item_) {
+        return;
+    }
+
+    const QString filter = text.trimmed();
+
+    for (int i = 0; i < models_item_->childCount(); ++i) {
+        QTreeWidgetItem* item = models_item_->child(i);
+
+        if (!item) {
+            continue;
+        }
+
+        const bool visible =
+            filter.isEmpty() ||
+            item->text(0).contains(filter, Qt::CaseInsensitive);
+
+        item->setHidden(!visible);
+    }
 }

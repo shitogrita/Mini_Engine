@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Engine/Assets/ImportedMeshData.h"
+#include "Engine/Assets/TextureManager.h"
 #include "Engine/Math/Ray.h"
 #include "Engine/Math/matrix_types.h"
 #include "Engine/Renderer/Mesh.h"
@@ -144,6 +145,8 @@ public:
     void CreatePlane();
     void CreateSphere();
 
+    void ClearScene();
+
 
 private:
 
@@ -157,16 +160,14 @@ private:
      * @brief Загружает ожидающую OBJ модель
      * в OpenGL и создаёт SceneObject.
      */
-    void UploadPendingMesh();
+    void ImportPendingModel();
 
 
     /**
      * @brief Рассчитывает параметры отображения
      * импортированной модели.
      */
-    void CalculateModelFit(
-        const ImportedMeshData& mesh_data
-    );
+    void ApplyModelFit(const std::vector<std::shared_ptr<SceneObject>>& objects, const Vec3& spawn_position);
 
 
     /**
@@ -296,6 +297,8 @@ private:
     std::unique_ptr<Mesh> light_mesh_;
     std::unique_ptr<Shader> light_shader_;
 
+    void ResetInputState();
+
 protected:
 
     /**
@@ -366,6 +369,8 @@ protected:
     void wheelEvent(
         QWheelEvent* event
     ) override;
+
+    void focusOutEvent(QFocusEvent* event) override;
 
 
 private:
@@ -470,15 +475,20 @@ private:
     std::unique_ptr<Mesh>
         gizmo_z_mesh_;
 
-
-    /*
-     * OBJ, ожидающий загрузки
-     * после создания OpenGL Context.
+    /**
+     * @brief Путь к OBJ, ожидающему импорта.
+     *
+     * Если файл был открыт до initializeGL(),
+     * импорт откладывается до появления OpenGL Context.
      */
-    std::optional<ImportedMeshData>
-        pending_mesh_data_;
+    QString pending_model_path_;
 
-
+    /**
+     * @brief Менеджер текстур импортированных моделей.
+     *
+     * Хранит Texture2D до уничтожения OpenGL Context.
+     */
+    TextureManager texture_manager_;
     /*
      * Путь к текущему импортированному файлу.
      */
@@ -492,29 +502,6 @@ private:
         0.12f,
         0.13f,
         0.14f
-    };
-
-
-    /*
-     * Параметры, используемые
-     * для первоначального отображения модели.
-     */
-    Vec3 model_position_{
-        0.0f,
-        0.0f,
-        0.0f
-    };
-
-    Vec3 model_rotation_{
-        0.0f,
-        0.0f,
-        0.0f
-    };
-
-    Vec3 model_scale_{
-        1.0f,
-        1.0f,
-        1.0f
     };
 
 

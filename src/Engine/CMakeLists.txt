@@ -16,6 +16,8 @@ add_library(
         Assets/ImportedModelData.h
         Assets/MtlParser.cpp
         Assets/MtlParser.h
+        Assets/ModelImporter.cpp
+        Assets/ModelImporter.h
 
         Math/affine_transformation.cpp
         Math/affine_transformation.h

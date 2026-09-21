@@ -1,58 +1,119 @@
-#include "MtlParser.h"
+#include "Engine/Assets/MtlParser.h"
 
 #include <fstream>
 #include <sstream>
-#include <stdexcept>
-
+#include <string>
 
 std::vector<ImportedMaterialData> MtlParser::Parse(const std::filesystem::path& path) {
-	std::ifstream file(path);
+    std::ifstream file(path);
 
-	if (!file.is_open()) {
-		throw std::runtime_error("Failed to open MTL file: " + path.string());
-	}
+    if (!file.is_open()) {
+        return {};
+    }
 
-	std::vector<ImportedMaterialData> materials;
+    std::vector<ImportedMaterialData> materials;
 
-	ImportedMaterialData* current_material = nullptr;
+    /*
+     * Указатель на материал, который сейчас читается.
+     *
+     * До первого newmtl текущего материала ещё нет.
+     */
+    ImportedMaterialData* current_material = nullptr;
 
-	std::string line;
+    std::string line;
 
-	while (std::getline(file, line)) {
-		if (line.empty() || line[0] == '#') {
-			continue;
-		}
+    while (std::getline(file, line)) {
+        if (line.empty()) {
+            continue;
+        }
 
-		std::istringstream stream(line);
+        std::istringstream stream(line);
 
-		std::string command;
-		stream >> command;
+        std::string command;
+        stream >> command;
 
-		if (command == "newmtl") {
-			materials.emplace_back();
+        if (command.empty() || command[0] == '#') {
+            continue;
+        }
 
-			current_material = &materials.back();
+        /*
+         * newmtl создаёт новый материал.
+         *
+         * Например:
+         * newmtl Wood
+         */
+        if (command == "newmtl") {
+            std::string material_name;
+            stream >> material_name;
 
-			stream >> current_material->name;
-		}
-		else if (command == "Kd" && current_material != nullptr) {
-			stream
-				>> current_material->diffuse_color.x
-				>> current_material->diffuse_color.y
-				>> current_material->diffuse_color.z;
-		}
-		else if (command == "Ns" && current_material != nullptr) {
-			stream >> current_material->shininess;
-		}
-		else if (command == "map_Kd" && current_material != nullptr) {
-			std::string texture_path;
+            if (material_name.empty()) {
+                continue;
+            }
 
-			stream >> texture_path;
+            materials.emplace_back();
+            current_material = &materials.back();
+            current_material->name = material_name;
 
-			current_material->diffuse_texture_path =
-				path.parent_path() / texture_path;
-		}
-	}
+            continue;
+        }
 
-	return materials;
+        /*
+         * Остальные свойства не имеют смысла,
+         * пока не был объявлен материал через newmtl.
+         */
+        if (current_material == nullptr) {
+            continue;
+        }
+
+        /*
+         * Kd — диффузный цвет материала.
+         *
+         * Например:
+         * Kd 0.8 0.5 0.2 - RGB
+         */
+        if (command == "Kd") {
+            stream >> current_material->diffuse_color.x
+                   >> current_material->diffuse_color.y
+                   >> current_material->diffuse_color.z;
+
+            continue;
+        }
+
+        /*
+         * Ns — степень зеркального блика.
+         *
+         * Например:
+         * Ns 64
+         */
+        if (command == "Ns") {
+            stream >> current_material->shininess;
+            continue;
+        }
+
+        /*
+         * map_Kd — путь к диффузной текстуре.
+         *
+         * Путь считается относительно директории MTL-файла.
+         *
+         * Например:
+         * Models/house/house.mtl
+         * map_Kd textures/brick.png
+         *
+         * Получим:
+         * Models/house/textures/brick.png
+         */
+        if (command == "map_Kd") {
+            std::string texture_path;
+            stream >> texture_path;
+
+            if (!texture_path.empty()) {
+                current_material->diffuse_texture_path =
+                    (path.parent_path() / texture_path).lexically_normal();
+            }
+
+            continue;
+        }
+    }
+
+    return materials;
 }

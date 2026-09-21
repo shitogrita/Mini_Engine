@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QString>
 #include <QWidget>
 
 class QLineEdit;
@@ -11,16 +12,19 @@ public:
 	explicit ProjectPanel(QWidget* parent = nullptr);
 
 	void AddImportedFile(const QString& file_path);
+	void ClearImportedFiles();
 
 private:
 	void CreateLayout();
-	void FillPlaceholderFolders();
+	void CreateTree();
+	void FilterTree(const QString& text);
 
-	QTreeWidgetItem* FindOrCreateModelsFolder();
-
-	QLineEdit* search_field_ = nullptr;
+	QLineEdit* search_line_ = nullptr;
 	QTreeWidget* tree_ = nullptr;
 
 	QTreeWidgetItem* assets_item_ = nullptr;
 	QTreeWidgetItem* models_item_ = nullptr;
+	QTreeWidgetItem* textures_item_ = nullptr;
+	QTreeWidgetItem* shaders_item_ = nullptr;
+	QTreeWidgetItem* materials_item_ = nullptr;
 };

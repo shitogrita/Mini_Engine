@@ -1,12 +1,11 @@
 #include "Editor/Viewport/SceneViewport.h"
 
-#include "Engine/Assets/ObjParser.h"
+#include "Engine/Assets/ModelImporter.h"
 #include "Engine/Math/affine_transformation.h"
 #include "Engine/Math/projection.h"
 #include "Engine/Platform/OpenGL/OpenGLLoader.h"
 #include "Engine/Scene/BoundingBox.h"
 #include "Engine/Renderer/PrimitiveGenerator.h"
-#include "Engine/Renderer/Texture2D.h"
 
 #include <QByteArray>
 #include <QFileInfo>
@@ -15,6 +14,7 @@
 #include <QMouseEvent>
 #include <QOpenGLContext>
 #include <QWheelEvent>
+#include <QFocusEvent>
 
 #include <algorithm>
 #include <cmath>
@@ -24,47 +24,39 @@
 #include <stdexcept>
 #include <utility>
 
-
-namespace {
-
 /**
  * @brief Вертикальный угол обзора Perspective-камеры.
  *
  * Значение должно совпадать с FOV,
  * используемым при построении Projection Matrix.
  */
-constexpr float kPerspectiveFovDegrees =
+static constexpr float kPerspectiveFovDegrees =
     45.0f;
-
 
 /**
  * @brief Ближняя плоскость отсечения.
  */
-constexpr float kNearPlane =
+static constexpr float kNearPlane =
     0.1f;
-
 
 /**
  * @brief Дальняя плоскость отсечения.
  */
-constexpr float kFarPlane =
+static constexpr float kFarPlane =
     100.0f;
-
 
 /**
  * @brief Число PI для перевода градусов в радианы.
  */
-constexpr float kPi =
+static constexpr float kPi =
     3.14159265358979323846f;
-
 
 /**
  * @brief Минимальное значение,
  * используемое при проверках float.
  */
-constexpr float kVectorEpsilon =
+static constexpr float kVectorEpsilon =
     0.000001f;
-
 
 /**
  * @brief Возвращает OpenGL-функцию
@@ -74,10 +66,7 @@ constexpr float kVectorEpsilon =
  * не подключая GLAD непосредственно
  * внутрь SceneViewport.
  */
-void* GetQtOpenGLProcAddress(
-    const char* name
-)
-{
+static void* GetQtOpenGLProcAddress(const char* name) {
     QOpenGLContext* current_context =
         QOpenGLContext::currentContext();
 
@@ -95,14 +84,10 @@ void* GetQtOpenGLProcAddress(
     );
 }
 
-
 /**
  * @brief Возвращает длину Vec3.
  */
-float Length(
-    const Vec3& vector
-)
-{
+static float Length(const Vec3& vector) {
     return std::sqrt(
         vector.x * vector.x +
         vector.y * vector.y +
@@ -110,17 +95,13 @@ float Length(
     );
 }
 
-
 /**
  * @brief Нормализует Vec3.
  *
  * Если длина практически равна нулю,
  * возвращается нулевой вектор.
  */
-Vec3 Normalize(
-    const Vec3& vector
-)
-{
+static Vec3 Normalize(const Vec3& vector) {
     const float length =
         Length(vector);
 
@@ -135,15 +116,10 @@ Vec3 Normalize(
     };
 }
 
-
 /**
  * @brief Возвращает расстояние между двумя точками.
  */
-float Distance(
-    const Vec3& first,
-    const Vec3& second
-)
-{
+static float Distance(const Vec3& first, const Vec3& second) {
     const Vec3 difference{
         first.x - second.x,
         first.y - second.y,
@@ -155,14 +131,7 @@ float Distance(
     );
 }
 
-} // namespace
-
-
-SceneViewport::SceneViewport(
-    QWidget* parent
-)
-    : QOpenGLWidget(parent)
-{
+SceneViewport::SceneViewport(QWidget* parent) : QOpenGLWidget(parent) {
     /*
      * Viewport должен получать клавиатурный focus,
      * чтобы WASD / QE работали после клика по Scene.
@@ -193,8 +162,7 @@ SceneViewport::SceneViewport(
         &input_timer_,
         &QTimer::timeout,
         this,
-        [this]()
-        {
+        [this]() {
             TickInput();
 
             UpdateCoordinatesLabel();
@@ -209,9 +177,7 @@ SceneViewport::SceneViewport(
     input_timer_.start(16);
 }
 
-
-SceneViewport::~SceneViewport()
-{
+SceneViewport::~SceneViewport() {
     /*
      * OpenGL-ресурсы должны уничтожаться,
      * пока соответствующий Context активен.
@@ -220,7 +186,7 @@ SceneViewport::~SceneViewport()
         makeCurrent();
 
         scene_.Clear();
-
+        texture_manager_.Clear();
 
         /*
          * Editor Grid и мировые оси.
@@ -230,7 +196,6 @@ SceneViewport::~SceneViewport()
         axis_x_mesh_.reset();
         axis_y_mesh_.reset();
         axis_z_mesh_.reset();
-
 
         /*
          * Move Gizmo.
@@ -242,7 +207,6 @@ SceneViewport::~SceneViewport()
         gizmo_y_mesh_.reset();
         gizmo_z_mesh_.reset();
 
-
         shader_.reset();
         light_mesh_.reset();
         light_shader_.reset();
@@ -251,14 +215,11 @@ SceneViewport::~SceneViewport()
     }
 }
 
-
-void SceneViewport::CreateLayout()
-{
+void SceneViewport::CreateLayout() {
     setMinimumSize(
         500,
         400
     );
-
 
     /*
      * Верхняя строка Scene View.
@@ -295,7 +256,6 @@ void SceneViewport::CreateLayout()
         )"
     );
 
-
     /*
      * Сообщение, показываемое,
      * пока ни одной модели нет.
@@ -320,7 +280,6 @@ void SceneViewport::CreateLayout()
             font-size: 16px;
         )"
     );
-
 
     /*
      * Панель информации о Camera
@@ -358,9 +317,7 @@ void SceneViewport::CreateLayout()
     UpdateProjectionTitle();
 }
 
-
-void SceneViewport::initializeGL()
-{
+void SceneViewport::initializeGL() {
     /*
      * Загружаем OpenGL-функции
      * через текущий Qt OpenGL Context.
@@ -373,9 +330,7 @@ void SceneViewport::initializeGL()
         );
     }
 
-
     renderer_.Initialize();
-
 
     /*
      * Загружаем основной Shader.
@@ -415,26 +370,21 @@ void SceneViewport::initializeGL()
      */
     CreateMoveGizmo();
 
-
     gl_initialized_ =
         true;
-
 
     /*
      * Если OBJ был открыт ещё до создания
      * OpenGL Context, загружаем его сейчас.
      */
-    UploadPendingMesh();
+    ImportPendingModel();
 }
 
-
-void SceneViewport::CreateEditorGrid()
-{
+void SceneViewport::CreateEditorGrid() {
     grid_mesh_ =
         std::make_unique<Mesh>(
             CreateGridMeshData()
         );
-
 
     axis_x_mesh_ =
         std::make_unique<Mesh>(
@@ -452,7 +402,6 @@ void SceneViewport::CreateEditorGrid()
             )
         );
 
-
     axis_y_mesh_ =
         std::make_unique<Mesh>(
             CreateAxisMeshData(
@@ -468,7 +417,6 @@ void SceneViewport::CreateEditorGrid()
                 }
             )
         );
-
 
     axis_z_mesh_ =
         std::make_unique<Mesh>(
@@ -487,10 +435,8 @@ void SceneViewport::CreateEditorGrid()
         );
 }
 
-
 ImportedMeshData
-SceneViewport::CreateGridMeshData() const
-{
+SceneViewport::CreateGridMeshData() const {
     ImportedMeshData data;
 
     constexpr int half_grid =
@@ -498,7 +444,6 @@ SceneViewport::CreateGridMeshData() const
 
     constexpr float step =
         1.0f;
-
 
     /*
      * Строим Grid на плоскости XZ.
@@ -516,13 +461,11 @@ SceneViewport::CreateGridMeshData() const
             continue;
         }
 
-
         const float coordinate =
             static_cast<float>(
                 index
             ) *
             step;
-
 
         /*
          * Линия, параллельная Z.
@@ -536,7 +479,6 @@ SceneViewport::CreateGridMeshData() const
                 -half_grid * step
             };
 
-
         Vertex second_z{};
 
         second_z.position =
@@ -546,12 +488,10 @@ SceneViewport::CreateGridMeshData() const
                 half_grid * step
             };
 
-
         const std::uint32_t first_index =
             static_cast<std::uint32_t>(
                 data.render_vertices.size()
             );
-
 
         data.render_vertices.push_back(
             first_z
@@ -561,7 +501,6 @@ SceneViewport::CreateGridMeshData() const
             second_z
         );
 
-
         data.render_indices.push_back(
             first_index
         );
@@ -569,7 +508,6 @@ SceneViewport::CreateGridMeshData() const
         data.render_indices.push_back(
             first_index + 1
         );
-
 
         /*
          * Линия, параллельная X.
@@ -583,7 +521,6 @@ SceneViewport::CreateGridMeshData() const
                 coordinate
             };
 
-
         Vertex second_x{};
 
         second_x.position =
@@ -593,12 +530,10 @@ SceneViewport::CreateGridMeshData() const
                 coordinate
             };
 
-
         const std::uint32_t second_index =
             static_cast<std::uint32_t>(
                 data.render_vertices.size()
             );
-
 
         data.render_vertices.push_back(
             first_x
@@ -607,7 +542,6 @@ SceneViewport::CreateGridMeshData() const
         data.render_vertices.push_back(
             second_x
         );
-
 
         data.render_indices.push_back(
             second_index
@@ -618,12 +552,10 @@ SceneViewport::CreateGridMeshData() const
         );
     }
 
-
     return data;
 }
 
-void SceneViewport::CreateMoveGizmo()
-{
+void SceneViewport::CreateMoveGizmo() {
     /*
      * Gizmo создаётся около локального начала координат.
      *
@@ -646,7 +578,6 @@ void SceneViewport::CreateMoveGizmo()
             )
         );
 
-
     gizmo_y_mesh_ =
         std::make_unique<Mesh>(
             CreateAxisMeshData(
@@ -662,7 +593,6 @@ void SceneViewport::CreateMoveGizmo()
                 }
             )
         );
-
 
     gizmo_z_mesh_ =
         std::make_unique<Mesh>(
@@ -682,25 +612,18 @@ void SceneViewport::CreateMoveGizmo()
 }
 
 ImportedMeshData
-SceneViewport::CreateAxisMeshData(
-    const Vec3& start,
-    const Vec3& end
-) const
-{
+SceneViewport::CreateAxisMeshData(const Vec3& start, const Vec3& end) const {
     ImportedMeshData data;
-
 
     Vertex first{};
 
     first.position =
         start;
 
-
     Vertex second{};
 
     second.position =
         end;
-
 
     data.render_vertices.push_back(
         first
@@ -710,7 +633,6 @@ SceneViewport::CreateAxisMeshData(
         second
     );
 
-
     data.render_indices.push_back(
         0
     );
@@ -719,21 +641,14 @@ SceneViewport::CreateAxisMeshData(
         1
     );
 
-
     return data;
 }
 
-
-void SceneViewport::resizeGL(
-    int width,
-    int height
-)
-{
+void SceneViewport::resizeGL(int width, int height) {
     renderer_.SetViewport(
         width,
         height
     );
-
 
     if (title_label_ != nullptr) {
         title_label_->setGeometry(
@@ -743,7 +658,6 @@ void SceneViewport::resizeGL(
             34
         );
     }
-
 
     if (content_label_ != nullptr) {
         content_label_->setGeometry(
@@ -756,7 +670,6 @@ void SceneViewport::resizeGL(
             )
         );
     }
-
 
     if (coordinates_label_ != nullptr) {
         coordinates_label_->adjustSize();
@@ -774,9 +687,7 @@ void SceneViewport::resizeGL(
     }
 }
 
-
-void SceneViewport::paintGL()
-{
+void SceneViewport::paintGL() {
     renderer_.BeginFrame(
         background_color_
     );
@@ -1039,8 +950,7 @@ void SceneViewport::paintGL()
             material.GetDiffuseTexture()->Bind(0);
             shader_->SetInt("uDiffuseTexture", 0);
             shader_->SetInt("uHasDiffuseTexture", 1);
-        }
-        else {
+        } else {
             shader_->SetInt("uHasDiffuseTexture", 0);
         }
 
@@ -1285,100 +1195,46 @@ void SceneViewport::paintGL()
     }
 }
 
+void SceneViewport::SetDisplayedFile(const QString& file_path) {
+    current_file_path_ = file_path;
+    pending_model_path_ = file_path;
 
-void SceneViewport::SetDisplayedFile(
-    const QString& file_path
-)
-{
-    const QFileInfo file_info(
-        file_path
-    );
-
-
-    current_file_path_ =
-        file_path;
-
-
-    ImportedMeshData mesh_data;
-
-
-    const bool parsed =
-        ObjParser::Parse(
-            file_path.toStdString(),
-            mesh_data
-        );
-
-
-    if (!parsed) {
-        content_label_->show();
-
-        content_label_->setText(
-            "Failed to load model\n\n" +
-            file_info.fileName() +
-            "\n\n" +
-            file_path
-        );
-
+    /*
+     * Если OpenGL ещё не инициализирован,
+     * путь просто сохраняется.
+     *
+     * Реальный импорт произойдёт из initializeGL().
+     */
+    if (!gl_initialized_) {
         return;
     }
 
-
     /*
-     * Рассчитываем стартовый Transform
-     * импортированной модели.
+     * ModelImporter создаёт Mesh и Texture2D,
+     * поэтому во время импорта OpenGL Context
+     * обязательно должен быть активен.
      */
-    CalculateModelFit(
-        mesh_data
-    );
+    makeCurrent();
 
+    ImportPendingModel();
 
-    /*
-     * Данные временно остаются на CPU,
-     * пока не появится активный OpenGL Context.
-     */
-    pending_mesh_data_ =
-        std::move(
-            mesh_data
-        );
-
-
-    if (gl_initialized_) {
-        makeCurrent();
-
-        UploadPendingMesh();
-
-        doneCurrent();
-    }
-
-
-    content_label_->hide();
+    doneCurrent();
 
     setFocus();
-
     UpdateProjectionTitle();
-
     UpdateCoordinatesLabel();
-
     update();
 }
 
-
-Scene& SceneViewport::GetScene()
-{
+Scene& SceneViewport::GetScene() {
     return scene_;
 }
 
-
-const Scene& SceneViewport::GetScene() const
-{
+const Scene& SceneViewport::GetScene() const {
     return scene_;
 }
 
-
-void SceneViewport::SetSelectedObject(
-    std::shared_ptr<SceneObject> object
-)
-{
+void SceneViewport::SetSelectedObject(std::shared_ptr<SceneObject> object) {
     /*
      * Этот метод может быть вызван
      * не только самим viewport,
@@ -1395,182 +1251,128 @@ void SceneViewport::SetSelectedObject(
             object
         );
 
-
     UpdateCoordinatesLabel();
 
     update();
 }
 
-
 std::shared_ptr<SceneObject>
-SceneViewport::GetSelectedObject() const
-{
+SceneViewport::GetSelectedObject() const {
     return selected_object_;
 }
 
-
-void SceneViewport::SetSelectionChangedCallback(
-    SelectionChangedCallback callback
-)
-{
+void SceneViewport::SetSelectionChangedCallback(SelectionChangedCallback callback) {
     selection_changed_callback_ =
         std::move(
             callback
         );
 }
 
-
-void SceneViewport::NotifySelectionChanged()
-{
+void SceneViewport::NotifySelectionChanged() {
     if (!selection_changed_callback_) {
         return;
     }
-
 
     selection_changed_callback_(
         selected_object_
     );
 }
 
-
-void SceneViewport::SetProjectionMode(
-    ProjectionMode mode
-)
-{
+void SceneViewport::SetProjectionMode(ProjectionMode mode) {
     projection_mode_ =
         mode;
-
 
     UpdateProjectionTitle();
 
     update();
 }
 
-
 SceneViewport::ProjectionMode
-SceneViewport::GetProjectionMode() const
-{
+SceneViewport::GetProjectionMode() const {
     return projection_mode_;
 }
 
-
-void SceneViewport::UploadPendingMesh()
-{
-    if (!pending_mesh_data_.has_value()) {
+void SceneViewport::ImportPendingModel() {
+    if (pending_model_path_.isEmpty()) {
         return;
     }
 
+    const QString model_path = pending_model_path_;
+    pending_model_path_.clear();
 
     /*
-     * BoundingBox строится на CPU
-     * из исходных координат Mesh.
+     * ModelImporter выполняет всю цепочку:
      *
-     * Важно:
+     * OBJ + MTL
+     * -> ImportedModelData
+     * -> Mesh
+     * -> Material
+     * -> Texture2D
+     * -> SceneObject.
      *
-     * BoundingBox остаётся в Local Space.
-     *
-     * Transform SceneObject сюда
-     * специально не применяется.
+     * Один OBJ может вернуть несколько SceneObject,
+     * если модель использует несколько материалов.
      */
-    const BoundingBox bounding_box =
-        BoundingBox::FromPoints(
-            pending_mesh_data_->
-                positions
+    std::vector<std::shared_ptr<SceneObject>> objects =
+        ModelImporter::ImportObj(
+            model_path.toStdString(),
+            texture_manager_
         );
 
+    if (objects.empty()) {
+        const QFileInfo file_info(model_path);
 
-    /*
-     * После этого геометрия передаётся на GPU.
-     */
-    auto mesh =
-        std::make_shared<Mesh>(
-            *pending_mesh_data_
+        content_label_->show();
+
+        content_label_->setText(
+            "Failed to load model\n\n" +
+            file_info.fileName() +
+            "\n\n" +
+            model_path
         );
 
-
-    const QFileInfo file_info(
-        current_file_path_
-    );
-
-
-    auto object =
-        std::make_shared<SceneObject>(
-            file_info.
-                completeBaseName().
-                toStdString(),
-
-            std::move(mesh)
-        );
-
+        return;
+    }
 
     /*
-     * BoundingBox относится именно
-     * к этому SceneObject.
-     */
-    object->SetBoundingBox(
-        bounding_box
-    );
-
-
-    Transform& transform =
-        object->GetTransform();
-
-
-    transform.position =
-        model_position_;
-
-    transform.rotation =
-        model_rotation_;
-
-    transform.scale =
-        model_scale_;
-
-
-    /*
-     * Находим стартовую позицию
-     * только для нового SceneObject.
+     * Все части одного OBJ должны появиться
+     * в одном месте.
      *
-     * Уже существующие объекты
-     * при импорте не передвигаются.
+     * Поэтому FindSpawnPosition() вызываем один раз,
+     * а не отдельно для каждой части материала.
      */
-    const Vec3 spawn_position =
-        FindSpawnPosition();
+    const Vec3 spawn_position = FindSpawnPosition();
 
+    for (const std::shared_ptr<SceneObject>& object : objects) {
+        if (!object) {
+            continue;
+        }
 
-    transform.position.x +=
-        spawn_position.x;
+        object->GetTransform().position = spawn_position;
 
-    transform.position.y +=
-        spawn_position.y;
+        scene_.AddObject(object);
+    }
 
-    transform.position.z +=
-        spawn_position.z;
+    content_label_->hide();
 
-
-    scene_.AddObject(
-        std::move(
-            object
-        )
-    );
-
+    /*
+     * После импорта выбираем первую часть модели.
+     */
+    selected_object_ = objects.front();
 
     UpdateProjectionTitle();
-
-    pending_mesh_data_.reset();
+    UpdateCoordinatesLabel();
+    NotifySelectionChanged();
 }
 
-
-Vec3 SceneViewport::FindSpawnPosition() const
-{
+Vec3 SceneViewport::FindSpawnPosition() const {
     constexpr float spacing =
         0.9f;
-
 
     const std::size_t object_count =
         scene_.
             GetObjects().
             size();
-
 
     if (object_count == 0) {
         return Vec3{
@@ -1579,7 +1381,6 @@ Vec3 SceneViewport::FindSpawnPosition() const
             0.0f
         };
     }
-
 
     /*
      * Последовательность:
@@ -1595,12 +1396,10 @@ Vec3 SceneViewport::FindSpawnPosition() const
         (object_count + 1) /
         2;
 
-
     const float direction =
         object_count % 2 == 1
             ? 1.0f
             : -1.0f;
-
 
     return Vec3{
         direction *
@@ -1615,21 +1414,16 @@ Vec3 SceneViewport::FindSpawnPosition() const
     };
 }
 
-
-void SceneViewport::ArrangeSceneObjects()
-{
+void SceneViewport::ArrangeSceneObjects() {
     const auto& objects =
         scene_.GetObjects();
-
 
     if (objects.empty()) {
         return;
     }
 
-
     constexpr float spacing =
         0.9f;
-
 
     const float total_width =
         static_cast<float>(
@@ -1637,11 +1431,9 @@ void SceneViewport::ArrangeSceneObjects()
         ) *
         spacing;
 
-
     const float start_x =
         -total_width *
         0.5f;
-
 
     for (
         std::size_t index = 0;
@@ -1652,11 +1444,9 @@ void SceneViewport::ArrangeSceneObjects()
             continue;
         }
 
-
         Transform& transform =
             objects[index]->
                 GetTransform();
-
 
         transform.position.x =
             start_x +
@@ -1667,258 +1457,142 @@ void SceneViewport::ArrangeSceneObjects()
     }
 }
 
+void SceneViewport::ApplyModelFit(const std::vector<std::shared_ptr<SceneObject>>& objects, const Vec3& spawn_position) {
+    bool has_bounds = false;
+    Vec3 minimum{};
+    Vec3 maximum{};
 
-void SceneViewport::CalculateModelFit(
-    const ImportedMeshData& mesh_data
-)
-{
-    if (mesh_data.positions.empty()) {
-        model_position_ =
-            Vec3{};
+    for (const std::shared_ptr<SceneObject>& object : objects) {
+        if (!object) {
+            continue;
+        }
 
+        const BoundingBox& box = object->GetBoundingBox();
+        const Vec3 center = box.GetCenter();
+        const Vec3 size = box.GetSize();
 
-        model_scale_ =
-            Vec3{
-                1.0f,
-                1.0f,
-                1.0f
-            };
+        const Vec3 box_minimum{
+            center.x - size.x * 0.5f,
+            center.y - size.y * 0.5f,
+            center.z - size.z * 0.5f
+        };
 
+        const Vec3 box_maximum{
+            center.x + size.x * 0.5f,
+            center.y + size.y * 0.5f,
+            center.z + size.z * 0.5f
+        };
 
+        if (!has_bounds) {
+            minimum = box_minimum;
+            maximum = box_maximum;
+            has_bounds = true;
+            continue;
+        }
+
+        minimum.x = std::min(minimum.x, box_minimum.x);
+        minimum.y = std::min(minimum.y, box_minimum.y);
+        minimum.z = std::min(minimum.z, box_minimum.z);
+
+        maximum.x = std::max(maximum.x, box_maximum.x);
+        maximum.y = std::max(maximum.y, box_maximum.y);
+        maximum.z = std::max(maximum.z, box_maximum.z);
+    }
+
+    if (!has_bounds) {
         return;
     }
 
-
-    Vec3 minimum =
-        mesh_data.positions.front();
-
-
-    Vec3 maximum =
-        mesh_data.positions.front();
-
-
-    /*
-     * Находим AABB исходной модели.
-     */
-    for (
-        const Vec3& position :
-        mesh_data.positions
-    ) {
-        minimum.x =
-            std::min(
-                minimum.x,
-                position.x
-            );
-
-        minimum.y =
-            std::min(
-                minimum.y,
-                position.y
-            );
-
-        minimum.z =
-            std::min(
-                minimum.z,
-                position.z
-            );
-
-
-        maximum.x =
-            std::max(
-                maximum.x,
-                position.x
-            );
-
-        maximum.y =
-            std::max(
-                maximum.y,
-                position.y
-            );
-
-        maximum.z =
-            std::max(
-                maximum.z,
-                position.z
-            );
-    }
-
-
-    /*
-     * Центр модели.
-     */
     const Vec3 center{
-        (minimum.x + maximum.x) *
-            0.5f,
-
-        (minimum.y + maximum.y) *
-            0.5f,
-
-        (minimum.z + maximum.z) *
-            0.5f
+        (minimum.x + maximum.x) * 0.5f,
+        (minimum.y + maximum.y) * 0.5f,
+        (minimum.z + maximum.z) * 0.5f
     };
 
+    const float size_x = maximum.x - minimum.x;
+    const float size_y = maximum.y - minimum.y;
+    const float size_z = maximum.z - minimum.z;
+    const float maximum_size = std::max({size_x, size_y, size_z});
 
-    const float size_x =
-        maximum.x -
-        minimum.x;
+    float fit_scale = 1.0f;
 
-
-    const float size_y =
-        maximum.y -
-        minimum.y;
-
-
-    const float size_z =
-        maximum.z -
-        minimum.z;
-
-
-    const float maximum_size =
-        std::max({
-            size_x,
-            size_y,
-            size_z
-        });
-
-
-    float fit_scale =
-        1.0f;
-
-
-    /*
-     * Масштабируем модель приблизительно
-     * до размера 0.6 мировых единиц.
-     */
-    if (
-        maximum_size >
-        kVectorEpsilon
-    ) {
-        fit_scale =
-            0.6f /
-            maximum_size;
+    if (maximum_size > kVectorEpsilon) {
+        fit_scale = 0.6f / maximum_size;
     }
 
+    const Vec3 model_position{
+        spawn_position.x - center.x * fit_scale,
+        spawn_position.y - center.y * fit_scale,
+        spawn_position.z - center.z * fit_scale
+    };
 
-    /*
-     * После масштабирования центр модели
-     * перемещается в начало координат.
-     */
-    model_position_ =
-        Vec3{
-            -center.x *
-                fit_scale,
+    const Vec3 model_scale{
+        fit_scale,
+        fit_scale,
+        fit_scale
+    };
 
-            -center.y *
-                fit_scale,
+    for (const std::shared_ptr<SceneObject>& object : objects) {
+        if (!object) {
+            continue;
+        }
 
-            -center.z *
-                fit_scale
-        };
-
-
-    model_rotation_ =
-        Vec3{
-            0.0f,
-            0.0f,
-            0.0f
-        };
-
-
-    model_scale_ =
-        Vec3{
-            fit_scale,
-            fit_scale,
-            fit_scale
-        };
+        Transform& transform = object->GetTransform();
+        transform.position = model_position;
+        transform.rotation = Vec3{0.0f, 0.0f, 0.0f};
+        transform.scale = model_scale;
+    }
 }
 
+void SceneViewport::TickInput() {
+    if (!hasFocus()) {
+        ResetInputState();
+        input_clock_.restart();
+        return;
+    }
 
-void SceneViewport::TickInput()
-{
-    float delta_time =
-        static_cast<float>(
-            input_clock_.restart()
-        ) /
-        1000.0f;
+    float delta_time = static_cast<float>(input_clock_.restart()) / 1000.0f;
 
+    delta_time = std::min(delta_time, 0.05f);
 
-    /*
-     * Ограничиваем слишком большой delta time,
-     * например после остановки приложения
-     * в debugger.
-     */
-    delta_time =
-        std::min(
-            delta_time,
-            0.05f
-        );
-
-
-    constexpr float move_speed =
-        2.0f;
-
-
-    const float distance =
-        move_speed *
-        delta_time;
-
+    constexpr float move_speed = 2.0f;
+    const float distance = move_speed * delta_time;
 
     if (move_forward_) {
-        camera_.MoveForward(
-            distance
-        );
+        camera_.MoveForward(distance);
     }
-
 
     if (move_backward_) {
-        camera_.MoveBackward(
-            distance
-        );
+        camera_.MoveBackward(distance);
     }
-
 
     if (move_left_) {
-        camera_.MoveLeft(
-            distance
-        );
+        camera_.MoveLeft(distance);
     }
-
 
     if (move_right_) {
-        camera_.MoveRight(
-            distance
-        );
+        camera_.MoveRight(distance);
     }
-
 
     if (move_up_) {
-        camera_.MoveUp(
-            distance
-        );
+        camera_.MoveUp(distance);
     }
 
-
     if (move_down_) {
-        camera_.MoveDown(
-            distance
-        );
+        camera_.MoveDown(distance);
     }
 }
 
-
-void SceneViewport::UpdateProjectionTitle()
-{
+void SceneViewport::UpdateProjectionTitle() {
     if (title_label_ == nullptr) {
         return;
     }
-
 
     const QString projection_name =
         projection_mode_ ==
         ProjectionMode::Perspective
             ? "Perspective"
             : "Orthographic";
-
 
     title_label_->setText(
         QString(
@@ -1935,17 +1609,19 @@ void SceneViewport::UpdateProjectionTitle()
     );
 }
 
+void SceneViewport::focusOutEvent(QFocusEvent* event) {
+    ResetInputState();
+    input_clock_.restart();
+    QOpenGLWidget::focusOutEvent(event);
+}
 
-void SceneViewport::UpdateCoordinatesLabel()
-{
+void SceneViewport::UpdateCoordinatesLabel() {
     if (coordinates_label_ == nullptr) {
         return;
     }
 
-
     const Vec3& camera_position =
         camera_.GetPosition();
-
 
     QString text =
         QString(
@@ -1973,7 +1649,6 @@ void SceneViewport::UpdateCoordinatesLabel()
             3
         );
 
-
     /*
      * Если объект выбран,
      * дополнительно показываем его Position.
@@ -1982,7 +1657,6 @@ void SceneViewport::UpdateCoordinatesLabel()
         const Transform& transform =
             selected_object_->
                 GetTransform();
-
 
         text +=
             QString(
@@ -2018,14 +1692,11 @@ void SceneViewport::UpdateCoordinatesLabel()
             );
     }
 
-
     coordinates_label_->setText(
         text
     );
 
-
     coordinates_label_->adjustSize();
-
 
     coordinates_label_->move(
         std::max(
@@ -2039,11 +1710,9 @@ void SceneViewport::UpdateCoordinatesLabel()
     );
 }
 
-
 Ray SceneViewport::CreateMouseRay(
     const QPointF& mouse_position
-) const
-{
+) const {
     /*
      * Без реального размера viewport
      * построить корректный Ray невозможно.
@@ -2054,7 +1723,6 @@ Ray SceneViewport::CreateMouseRay(
     ) {
         return Ray{};
     }
-
 
     /*
      * Qt использует экранные координаты:
@@ -2082,7 +1750,6 @@ Ray SceneViewport::CreateMouseRay(
             ) -
         1.0f;
 
-
     const float ndc_y =
         1.0f -
         2.0f *
@@ -2093,7 +1760,6 @@ Ray SceneViewport::CreateMouseRay(
                 height()
             );
 
-
     const float aspect =
         static_cast<float>(
             width()
@@ -2102,21 +1768,17 @@ Ray SceneViewport::CreateMouseRay(
             height()
         );
 
-
     /*
      * Базис Camera в World Space.
      */
     const Vec3 forward =
         camera_.GetForward();
 
-
     const Vec3 right =
         camera_.GetRight();
 
-
     const Vec3 up =
         camera_.GetUp();
-
 
     /*
      * Perspective и Orthographic создают Ray
@@ -2138,17 +1800,14 @@ Ray SceneViewport::CreateMouseRay(
             kPi /
             180.0f;
 
-
         const float half_height =
             std::tan(
                 half_fov_radians
             );
 
-
         const float half_width =
             half_height *
             aspect;
-
 
         Vec3 direction{
             forward.x +
@@ -2176,19 +1835,16 @@ Ray SceneViewport::CreateMouseRay(
                     half_height
         };
 
-
         direction =
             Normalize(
                 direction
             );
-
 
         return Ray{
             camera_.GetPosition(),
             direction
         };
     }
-
 
     /*
      * Orthographic:
@@ -2199,15 +1855,12 @@ Ray SceneViewport::CreateMouseRay(
     const float half_height =
         orthographic_half_height_;
 
-
     const float half_width =
         half_height *
         aspect;
 
-
     const Vec3 camera_position =
         camera_.GetPosition();
-
 
     const Vec3 origin{
         camera_position.x +
@@ -2235,7 +1888,6 @@ Ray SceneViewport::CreateMouseRay(
                 half_height
     };
 
-
     return Ray{
         origin,
         Normalize(
@@ -2244,11 +1896,9 @@ Ray SceneViewport::CreateMouseRay(
     };
 }
 
-
 void SceneViewport::SelectObjectAt(
     const QPointF& mouse_position
-)
-{
+) {
     /*
      * Создаём Ray в World Space.
      */
@@ -2257,13 +1907,11 @@ void SceneViewport::SelectObjectAt(
             mouse_position
         );
 
-
     /*
      * Пока подходящего объекта нет.
      */
     std::shared_ptr<SceneObject>
         nearest_object;
-
 
     /*
      * Храним расстояние до ближайшего
@@ -2272,7 +1920,6 @@ void SceneViewport::SelectObjectAt(
     float nearest_world_distance =
         std::numeric_limits<float>::
             infinity();
-
 
     /*
      * Проверяем каждый SceneObject.
@@ -2285,15 +1932,12 @@ void SceneViewport::SelectObjectAt(
             continue;
         }
 
-
         if (!object->HasMesh()) {
             continue;
         }
 
-
         const Transform& transform =
             object->GetTransform();
-
 
         /*
          * Если хотя бы один компонент Scale равен нулю,
@@ -2321,7 +1965,6 @@ void SceneViewport::SelectObjectAt(
             continue;
         }
 
-
         /*
          * Model Matrix:
          *
@@ -2330,7 +1973,6 @@ void SceneViewport::SelectObjectAt(
         const Matrix4 model =
             transform.
                 GetModelMatrix();
-
 
         /*
          * Inverse Model Matrix:
@@ -2343,7 +1985,6 @@ void SceneViewport::SelectObjectAt(
                     model
                 );
 
-
         /*
          * BoundingBox хранится
          * в Local Space объекта.
@@ -2352,7 +1993,6 @@ void SceneViewport::SelectObjectAt(
          * переводим сам Ray в Local Space.
          */
         Ray local_ray{};
-
 
         /*
          * origin — это точка,
@@ -2364,7 +2004,6 @@ void SceneViewport::SelectObjectAt(
                     inverse_model,
                     world_ray.origin
                 );
-
 
         /*
          * direction — это направление,
@@ -2387,10 +2026,8 @@ void SceneViewport::SelectObjectAt(
                     world_ray.direction
                 );
 
-
         float local_distance =
             0.0f;
-
 
         /*
          * Broad Phase:
@@ -2406,11 +2043,9 @@ void SceneViewport::SelectObjectAt(
                 local_distance
             );
 
-
         if (!intersects) {
             continue;
         }
-
 
         /*
          * Получаем точку попадания
@@ -2420,7 +2055,6 @@ void SceneViewport::SelectObjectAt(
             local_ray.GetPoint(
                 local_distance
             );
-
 
         /*
          * Переводим точку попадания
@@ -2433,7 +2067,6 @@ void SceneViewport::SelectObjectAt(
                     local_hit_point
                 );
 
-
         /*
          * Теперь расстояние можно честно
          * сравнивать между разными объектами,
@@ -2444,7 +2077,6 @@ void SceneViewport::SelectObjectAt(
                 world_ray.origin,
                 world_hit_point
             );
-
 
         if (
             world_distance <
@@ -2458,7 +2090,6 @@ void SceneViewport::SelectObjectAt(
         }
     }
 
-
     /*
      * Если ни один BoundingBox не пересечён,
      * nearest_object останется nullptr,
@@ -2470,7 +2101,6 @@ void SceneViewport::SelectObjectAt(
             nearest_object
         );
 
-
     UpdateCoordinatesLabel();
 
     NotifySelectionChanged();
@@ -2478,15 +2108,12 @@ void SceneViewport::SelectObjectAt(
     update();
 }
 
-
 void SceneViewport::keyPressEvent(
     QKeyEvent* event
-)
-{
+) {
     if (event->isAutoRepeat()) {
         return;
     }
-
 
     switch (event->key()) {
         case Qt::Key_W:
@@ -2494,36 +2121,30 @@ void SceneViewport::keyPressEvent(
                 true;
             break;
 
-
         case Qt::Key_S:
             move_backward_ =
                 true;
             break;
-
 
         case Qt::Key_A:
             move_left_ =
                 true;
             break;
 
-
         case Qt::Key_D:
             move_right_ =
                 true;
             break;
-
 
         case Qt::Key_E:
             move_up_ =
                 true;
             break;
 
-
         case Qt::Key_Q:
             move_down_ =
                 true;
             break;
-
 
         case Qt::Key_1:
         case Qt::Key_P:
@@ -2532,7 +2153,6 @@ void SceneViewport::keyPressEvent(
                     Perspective
             );
             break;
-
 
         case Qt::Key_2:
         case Qt::Key_O:
@@ -2546,7 +2166,6 @@ void SceneViewport::keyPressEvent(
             FrameSelectedObject();
             break;
 
-
         default:
             QOpenGLWidget::
                 keyPressEvent(
@@ -2556,15 +2175,12 @@ void SceneViewport::keyPressEvent(
     }
 }
 
-
 void SceneViewport::keyReleaseEvent(
     QKeyEvent* event
-)
-{
+) {
     if (event->isAutoRepeat()) {
         return;
     }
-
 
     switch (event->key()) {
         case Qt::Key_W:
@@ -2572,36 +2188,30 @@ void SceneViewport::keyReleaseEvent(
                 false;
             break;
 
-
         case Qt::Key_S:
             move_backward_ =
                 false;
             break;
-
 
         case Qt::Key_A:
             move_left_ =
                 false;
             break;
 
-
         case Qt::Key_D:
             move_right_ =
                 false;
             break;
-
 
         case Qt::Key_E:
             move_up_ =
                 false;
             break;
 
-
         case Qt::Key_Q:
             move_down_ =
                 false;
             break;
-
 
         default:
             QOpenGLWidget::
@@ -2614,10 +2224,8 @@ void SceneViewport::keyReleaseEvent(
 
 void SceneViewport::mousePressEvent(
     QMouseEvent* event
-)
-{
+) {
     setFocus();
-
 
     /*
      * Alt + ЛКМ:
@@ -2640,16 +2248,13 @@ void SceneViewport::mousePressEvent(
         pointer_look_active_ =
             true;
 
-
         last_pointer_position_ =
             event->position();
-
 
         event->accept();
 
         return;
     }
-
 
     /*
      * Обычный ЛКМ.
@@ -2675,7 +2280,6 @@ void SceneViewport::mousePressEvent(
             return;
         }
 
-
         /*
          * Если ни одна ось gizmo
          * не была нажата —
@@ -2685,12 +2289,10 @@ void SceneViewport::mousePressEvent(
             event->position()
         );
 
-
         event->accept();
 
         return;
     }
-
 
     QOpenGLWidget::
         mousePressEvent(
@@ -2700,8 +2302,7 @@ void SceneViewport::mousePressEvent(
 
 void SceneViewport::mouseReleaseEvent(
     QMouseEvent* event
-)
-{
+) {
     if (
         event->button() ==
         Qt::LeftButton
@@ -2724,7 +2325,6 @@ void SceneViewport::mouseReleaseEvent(
             return;
         }
 
-
         /*
          * Завершаем вращение Camera.
          */
@@ -2738,7 +2338,6 @@ void SceneViewport::mouseReleaseEvent(
         }
     }
 
-
     QOpenGLWidget::
         mouseReleaseEvent(
             event
@@ -2747,11 +2346,9 @@ void SceneViewport::mouseReleaseEvent(
 
 void SceneViewport::mouseMoveEvent(
     QMouseEvent* event
-)
-{
+) {
     const QPointF current_position =
         event->position();
-
 
     /*
      * Перемещение выбранного SceneObject
@@ -2765,7 +2362,6 @@ void SceneViewport::mouseMoveEvent(
             current_position -
             last_pointer_position_;
 
-
         /*
          * Пока используем экранное смещение мыши
          * как величину перемещения.
@@ -2777,11 +2373,9 @@ void SceneViewport::mouseMoveEvent(
         constexpr float move_sensitivity =
             0.01f;
 
-
         Transform& transform =
             selected_object_->
                 GetTransform();
-
 
         switch (
             active_gizmo_axis_
@@ -2793,7 +2387,6 @@ void SceneViewport::mouseMoveEvent(
                     ) *
                     move_sensitivity;
                 break;
-
 
             case GizmoAxis::Y:
                 /*
@@ -2808,7 +2401,6 @@ void SceneViewport::mouseMoveEvent(
                     move_sensitivity;
                 break;
 
-
             case GizmoAxis::Z:
                 /*
                  * Для первого варианта Z
@@ -2822,11 +2414,9 @@ void SceneViewport::mouseMoveEvent(
                     move_sensitivity;
                 break;
 
-
             case GizmoAxis::None:
                 break;
         }
-
 
         last_pointer_position_ =
             current_position;
@@ -2839,12 +2429,10 @@ void SceneViewport::mouseMoveEvent(
 
         update();
 
-
         event->accept();
 
         return;
     }
-
 
     /*
      * Alt + ЛКМ:
@@ -2855,10 +2443,8 @@ void SceneViewport::mouseMoveEvent(
             current_position -
             last_pointer_position_;
 
-
         constexpr float mouse_sensitivity =
             0.20f;
-
 
         camera_.Rotate(
             static_cast<float>(
@@ -2872,21 +2458,17 @@ void SceneViewport::mouseMoveEvent(
             mouse_sensitivity
         );
 
-
         last_pointer_position_ =
             current_position;
-
 
         UpdateCoordinatesLabel();
 
         update();
 
-
         event->accept();
 
         return;
     }
-
 
     QOpenGLWidget::
         mouseMoveEvent(
@@ -2896,11 +2478,9 @@ void SceneViewport::mouseMoveEvent(
 
 void SceneViewport::wheelEvent(
     QWheelEvent* event
-)
-{
+) {
     float scroll_y =
         0.0f;
-
 
     /*
      * Trackpad обычно сообщает pixelDelta.
@@ -2917,7 +2497,6 @@ void SceneViewport::wheelEvent(
                     y()
             );
 
-
         scroll_y *=
             0.006f;
     } else {
@@ -2933,11 +2512,9 @@ void SceneViewport::wheelEvent(
             ) /
             120.0f;
 
-
         scroll_y *=
             0.25f;
     }
-
 
     if (
         projection_mode_ ==
@@ -2966,7 +2543,6 @@ void SceneViewport::wheelEvent(
             scroll_y *
             0.5f;
 
-
         orthographic_half_height_ =
             std::clamp(
                 orthographic_half_height_,
@@ -2975,7 +2551,6 @@ void SceneViewport::wheelEvent(
             );
     }
 
-
     UpdateCoordinatesLabel();
 
     update();
@@ -2983,8 +2558,7 @@ void SceneViewport::wheelEvent(
     event->accept();
 }
 
-void SceneViewport::FrameSelectedObject()
-{
+void SceneViewport::FrameSelectedObject() {
     if (!selected_object_) {
         return;
     }
@@ -3135,31 +2709,26 @@ void SceneViewport::FrameSelectedObject()
 SceneViewport::GizmoAxis
 SceneViewport::PickMoveGizmoAxis(
     const QPointF& mouse_position
-) const
-{
+) const {
     if (!selected_object_) {
         return GizmoAxis::None;
     }
-
 
     const Ray ray =
         CreateMouseRay(
             mouse_position
         );
 
-
     const Vec3 origin =
         selected_object_->
             GetTransform().
             position;
-
 
     /*
      * Gizmo пока имеет длину 1 world unit.
      */
     constexpr float gizmo_length =
         1.0f;
-
 
     /*
      * Допустимое расстояние от луча мыши
@@ -3171,7 +2740,6 @@ SceneViewport::PickMoveGizmoAxis(
     constexpr float selection_radius =
         0.12f;
 
-
     /*
      * Возвращает минимальное расстояние
      * между Ray и отрезком gizmo.
@@ -3180,14 +2748,12 @@ SceneViewport::PickMoveGizmoAxis(
         [&ray](
             const Vec3& start,
             const Vec3& end
-        )
-        {
+        ) {
             const Vec3 segment{
                 end.x - start.x,
                 end.y - start.y,
                 end.z - start.z
             };
-
 
             const Vec3 from_ray_to_segment{
                 ray.origin.x - start.x,
@@ -3195,48 +2761,40 @@ SceneViewport::PickMoveGizmoAxis(
                 ray.origin.z - start.z
             };
 
-
             const float a =
                 ray.direction.x * ray.direction.x +
                 ray.direction.y * ray.direction.y +
                 ray.direction.z * ray.direction.z;
-
 
             const float b =
                 ray.direction.x * segment.x +
                 ray.direction.y * segment.y +
                 ray.direction.z * segment.z;
 
-
             const float c =
                 segment.x * segment.x +
                 segment.y * segment.y +
                 segment.z * segment.z;
-
 
             const float d =
                 ray.direction.x * from_ray_to_segment.x +
                 ray.direction.y * from_ray_to_segment.y +
                 ray.direction.z * from_ray_to_segment.z;
 
-
             const float e =
                 segment.x * from_ray_to_segment.x +
                 segment.y * from_ray_to_segment.y +
                 segment.z * from_ray_to_segment.z;
 
-
             const float denominator =
                 a * c -
                 b * b;
-
 
             float ray_parameter =
                 0.0f;
 
             float segment_parameter =
                 0.0f;
-
 
             if (
                 std::abs(denominator) >
@@ -3249,7 +2807,6 @@ SceneViewport::PickMoveGizmoAxis(
                     ) /
                     denominator;
 
-
                 segment_parameter =
                     (
                         a * e -
@@ -3257,7 +2814,6 @@ SceneViewport::PickMoveGizmoAxis(
                     ) /
                     denominator;
             }
-
 
             /*
              * Ray существует только вперёд
@@ -3269,7 +2825,6 @@ SceneViewport::PickMoveGizmoAxis(
                     0.0f
                 );
 
-
             /*
              * Gizmo — конечный отрезок.
              */
@@ -3279,7 +2834,6 @@ SceneViewport::PickMoveGizmoAxis(
                     0.0f,
                     1.0f
                 );
-
 
             const Vec3 point_on_ray{
                 ray.origin.x +
@@ -3295,7 +2849,6 @@ SceneViewport::PickMoveGizmoAxis(
                     ray_parameter
             };
 
-
             const Vec3 point_on_segment{
                 start.x +
                     segment.x *
@@ -3310,7 +2863,6 @@ SceneViewport::PickMoveGizmoAxis(
                     segment_parameter
             };
 
-
             const float dx =
                 point_on_ray.x -
                 point_on_segment.x;
@@ -3323,7 +2875,6 @@ SceneViewport::PickMoveGizmoAxis(
                 point_on_ray.z -
                 point_on_segment.z;
 
-
             return std::sqrt(
                 dx * dx +
                 dy * dy +
@@ -3331,13 +2882,11 @@ SceneViewport::PickMoveGizmoAxis(
             );
         };
 
-
     const Vec3 x_end{
         origin.x + gizmo_length,
         origin.y,
         origin.z
     };
-
 
     const Vec3 y_end{
         origin.x,
@@ -3345,13 +2894,11 @@ SceneViewport::PickMoveGizmoAxis(
         origin.z
     };
 
-
     const Vec3 z_end{
         origin.x,
         origin.y,
         origin.z + gizmo_length
     };
-
 
     const float x_distance =
         distance_to_axis(
@@ -3359,13 +2906,11 @@ SceneViewport::PickMoveGizmoAxis(
             x_end
         );
 
-
     const float y_distance =
         distance_to_axis(
             origin,
             y_end
         );
-
 
     const float z_distance =
         distance_to_axis(
@@ -3373,14 +2918,11 @@ SceneViewport::PickMoveGizmoAxis(
             z_end
         );
 
-
     float best_distance =
         selection_radius;
 
-
     GizmoAxis result =
         GizmoAxis::None;
-
 
     if (
         x_distance <
@@ -3393,7 +2935,6 @@ SceneViewport::PickMoveGizmoAxis(
             GizmoAxis::X;
     }
 
-
     if (
         y_distance <
         best_distance
@@ -3405,7 +2946,6 @@ SceneViewport::PickMoveGizmoAxis(
             GizmoAxis::Y;
     }
 
-
     if (
         z_distance <
         best_distance
@@ -3414,20 +2954,16 @@ SceneViewport::PickMoveGizmoAxis(
             GizmoAxis::Z;
     }
 
-
     return result;
 }
 
-
 bool SceneViewport::TryBeginMoveGizmoDrag(
     const QPointF& mouse_position
-)
-{
+) {
     active_gizmo_axis_ =
         PickMoveGizmoAxis(
             mouse_position
         );
-
 
     if (
         active_gizmo_axis_ ==
@@ -3436,30 +2972,23 @@ bool SceneViewport::TryBeginMoveGizmoDrag(
         return false;
     }
 
-
     gizmo_drag_active_ =
         true;
-
 
     last_pointer_position_ =
         mouse_position;
 
-
     update();
-
 
     return true;
 }
 
-
 void SceneViewport::SetTransformChangedCallback(
     TransformChangedCallback callback
-)
-{
+) {
     transform_changed_callback_ =
         std::move(callback);
 }
-
 
 void SceneViewport::CreateCube() {
     CreatePrimitive("Cube", PrimitiveGenerator::CreateCube());
@@ -3497,4 +3026,30 @@ void SceneViewport::CreatePrimitive(const QString& name, ImportedMeshData mesh_d
     UpdateCoordinatesLabel();
     NotifySelectionChanged();
     update();
+}
+
+void SceneViewport::ClearScene() {
+    ResetInputState();
+    scene_.Clear();
+
+    selected_object_.reset();
+    pending_model_path_.clear();
+    current_file_path_.clear();
+
+    UpdateProjectionTitle();
+    UpdateCoordinatesLabel();
+    update();
+}
+
+void SceneViewport::ResetInputState() {
+    move_forward_ = false;
+    move_backward_ = false;
+    move_left_ = false;
+    move_right_ = false;
+    move_up_ = false;
+    move_down_ = false;
+
+    pointer_look_active_ = false;
+    gizmo_drag_active_ = false;
+    active_gizmo_axis_ = GizmoAxis::None;
 }

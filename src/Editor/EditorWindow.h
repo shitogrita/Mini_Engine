@@ -23,6 +23,7 @@ private:
 	void ApplyEditorStyle();
 
 	void OpenModelFile();
+	void ClearScene();
 
 	QAction* open_model_action_ = nullptr;
 	QAction* exit_action_ = nullptr;
@@ -36,6 +37,7 @@ private:
 	QAction* create_empty_action_ = nullptr;
 	QAction* create_cube_action_ = nullptr;
 	QAction* create_light_action_ = nullptr;
+	QAction* clear_scene_action_ = nullptr;
 
 	QAction* show_hierarchy_action_ = nullptr;
 	QAction* show_inspector_action_ = nullptr;

@@ -1,28 +1,55 @@
-#include "TextureManager.h"
-
 #include "Engine/Assets/TextureManager.h"
-#include "Engine/Renderer/Texture2D.h"
 
-// по факту знает о текстуре, но не нуждается в ее владении (уже владеет textures2D) Weak-ptr
-std::shared_ptr<Texture2D> TextureManager::Load(const std::filesystem::path &path) {
-	const std::string key = std::filesystem::absolute(path).lexically_normal().string(); // делает относительный путь абсолютным.
-	// условно из Textures/brick.jpg в /Users/name/repo/Mini_Engine/Textures/brick.jpg
-	// для стабильного ключа
-	const auto iterator = textures_.find(key);
-	if ( iterator != texture_.end()) {
-		if (std::shared_ptr<Texture2D> texture = iterator->second.lock()) { // weak_ptr нельзя просто так взять объект
-			// при уничтожении получим nullptr
-			return texture;
-		}
-		textures_.erase(iterator); // очистка от мусора
-	}
-	auto texture = std::make_shared<Texture2D>(path);
+std::shared_ptr<Texture2D> TextureManager::Load(const std::filesystem::path& path) {
+    /**
+     * Делаем относительный путь абсолютным и нормализуем его.
+     *
+     * Например:
+     * Textures/brick.jpg
+     *
+     * может превратиться в:
+     * /Users/name/repo/Mini_Engine/Textures/brick.jpg
+     *
+     * Это необходимо для получения стабильного ключа кеша.
+     * Иначе разные записи одного пути могли бы восприниматься
+     * как разные текстуры.
+     */
+    const std::filesystem::path normalized_path =
+        std::filesystem::absolute(path).lexically_normal();
 
-	textures_[key] = texture;
+    const std::string key = normalized_path.string();
 
-	return texture;
+    // Проверяем, загружалась ли эта текстура раньше.
+    const auto iterator = textures_.find(key);
+
+    if (iterator != textures_.end()) {
+        // Текстура уже существует — повторно в OpenGL её не загружаем.
+        return iterator->second;
+    }
+
+    /**
+     * Текстура ещё не загружена.
+     *
+     * Создаём Texture2D. Texture2D внутри себя загружает изображение
+     * и создаёт соответствующий OpenGL texture object.
+     */
+    auto texture = std::make_shared<Texture2D>(normalized_path);
+
+    // TextureManager становится одним из владельцев Texture2D.
+    textures_[key] = texture;
+
+    return texture;
 }
 
 void TextureManager::Clear() {
-	textures_.clear();
+    /**
+     * Убираем shared_ptr менеджера на все текстуры.
+     *
+     * Если других владельцев Texture2D нет, вызывается её деструктор
+     * и освобождается соответствующий OpenGL-ресурс.
+     *
+     * Поэтому Clear() необходимо вызывать, пока OpenGL-контекст
+     * ещё существует.
+     */
+    textures_.clear();
 }
