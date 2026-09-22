@@ -5,21 +5,16 @@
 #include <memory>
 #include <vector>
 
-
 class Scene {
 public:
-	void AddObject(
-		std::shared_ptr<SceneObject> object
-	);
+	void AddObject(std::shared_ptr<SceneObject> object);
+
+	bool RemoveObject(const std::shared_ptr<SceneObject>& object);
 
 	void Clear();
 
-	const std::vector<
-		std::shared_ptr<SceneObject>
-	>& GetObjects() const;
+	const std::vector<std::shared_ptr<SceneObject>>& GetObjects() const;
 
 private:
-	std::vector<
-		std::shared_ptr<SceneObject>
-	> objects_;
+	std::vector<std::shared_ptr<SceneObject>> objects_;
 };

@@ -312,24 +312,19 @@ void EditorWindow::CreateDockWidgets() {
     // 1. Ray Picking определяет выбранный SceneObject;
     // 2. Hierarchy выделяет тот же объект;
     // 3. Inspector начинает отображать его Transform.
-    scene_viewport_->
-        SetSelectionChangedCallback(
-            [this](
-                std::shared_ptr<SceneObject> object
-            )
-            {
-
-                hierarchy_panel_->
-                    SetSelectedObject(
-                        object
-                    );
-
-                inspector_panel_->
-                    SetSelectedObject(
-                        std::move(object)
-                    );
+    scene_viewport_->SetSelectionChangedCallback(
+    [this](std::shared_ptr<SceneObject> object) {
+            if (!object) {
+                hierarchy_panel_->Refresh();
             }
-        );
+
+            hierarchy_panel_->SetSelectedObject(object);
+
+            inspector_panel_->SetSelectedObject(
+                std::move(object)
+            );
+        }
+    );
 
     // Когда пользователь меняет Position / Rotation / Scale
     // в Inspector, Transform объекта уже изменяется там.

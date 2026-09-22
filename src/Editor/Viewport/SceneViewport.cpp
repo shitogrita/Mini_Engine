@@ -1153,6 +1153,28 @@ SceneViewport::GetSelectedObject() const {
     return selected_object_;
 }
 
+void SceneViewport::DeleteSelectedObject() {
+    if (!selected_object_) {
+        return;
+    }
+
+    const bool removed = scene_.RemoveObject(
+        selected_object_
+    );
+
+    if (!removed) {
+        return;
+    }
+
+    selected_object_.reset();
+
+    UpdateProjectionTitle();
+    UpdateCoordinatesLabel();
+    NotifySelectionChanged();
+
+    update();
+}
+
 void SceneViewport::SetSelectionChangedCallback(SelectionChangedCallback callback) {
     selection_changed_callback_ =
         std::move(
@@ -2051,11 +2073,13 @@ void SceneViewport::keyPressEvent(
             FrameSelectedObject();
             break;
 
+        case Qt::Key_Delete:
+        case Qt::Key_Backspace:
+            DeleteSelectedObject();
+            break;
+
         default:
-            QOpenGLWidget::
-                keyPressEvent(
-                    event
-                );
+            QOpenGLWidget::keyPressEvent(event);
             break;
     }
 }
