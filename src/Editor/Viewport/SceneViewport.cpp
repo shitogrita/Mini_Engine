@@ -105,6 +105,67 @@ static Vec3 Normalize(const Vec3& vector) {
 }
 
 /**
+ * @brief Проверяет пересечение World Space Ray со сферой.
+ *
+ * Используется для выбора Point Light мышью.
+ *
+ * Визуальная сфера источника не является обычным Mesh
+ * SceneObject, поэтому для неё используется отдельный
+ * простой sphere picking.
+ *
+ * @param ray Луч из Camera через положение курсора.
+ * @param center Центр сферы в World Space.
+ * @param radius Радиус области выбора.
+ * @param distance Расстояние до пересечения.
+ *
+ * @return true, если Ray пересекает сферу.
+ */
+static bool IntersectRayWithSphere(const Ray& ray, const Vec3& center, float radius, float& distance) {
+    const Vec3 offset{
+        ray.origin.x - center.x,
+        ray.origin.y - center.y,
+        ray.origin.z - center.z
+    };
+
+    const float b =
+        offset.x * ray.direction.x +
+        offset.y * ray.direction.y +
+        offset.z * ray.direction.z;
+
+    const float c =
+        offset.x * offset.x +
+        offset.y * offset.y +
+        offset.z * offset.z -
+        radius * radius;
+
+    const float discriminant =
+        b * b - c;
+
+    if (discriminant < 0.0f) {
+        return false;
+    }
+
+    const float root =
+        std::sqrt(discriminant);
+
+    float result =
+        -b - root;
+
+    if (result < 0.0f) {
+        result =
+            -b + root;
+    }
+
+    if (result < 0.0f) {
+        return false;
+    }
+
+    distance = result;
+
+    return true;
+}
+
+/**
  * @brief Возвращает расстояние между двумя точками.
  */
 static float Distance(const Vec3& first, const Vec3& second) {
@@ -168,33 +229,66 @@ static float DistanceRayToSegment(const Ray& ray, const Vec3& start, const Vec3&
     return Distance(point_on_ray, point_on_segment);
 }
 
+/**
+ * @brief Создаёт SceneViewport и запускает обработку управления Camera.
+ *
+ * Viewport получает клавиатурный focus для WASD/QE.
+ *
+ * input_timer_ примерно 60 раз в секунду вызывает TickInput(),
+ * который преобразует состояние клавиш в движение Camera.
+ *
+ * Также при создании сцены добавляется стандартный Point Light
+ * как обычный SceneObject.
+ *
+ * @param parent Родительский QWidget.
+ */
 SceneViewport::SceneViewport(QWidget* parent) : QOpenGLWidget(parent) {
     /*
-     * Viewport должен получать клавиатурный focus,
-     * чтобы WASD / QE работали после клика по Scene.
+     * Viewport должен принимать клавиатурный focus,
+     * иначе keyPressEvent/keyReleaseEvent не будут
+     * получать WASD после клика по Scene.
      */
     setFocusPolicy(Qt::StrongFocus);
 
     /*
-     * Позволяет получать mouseMoveEvent
-     * даже без зажатой кнопки мыши.
+     * Позволяет получать движение мыши
+     * для управления Camera и Gizmo.
      */
     setMouseTracking(true);
 
     CreateLayout();
 
     /*
-     * Таймер используется для вычисления
-     * delta time движения Camera.
+     * Создаём стандартный Point Light как SceneObject.
+     *
+     * false означает, что при запуске Editor
+     * источник света не выбирается автоматически.
+     */
+    CreatePointLightObject(false);
+
+    /*
+     * QElapsedTimer используется для вычисления delta time
+     * между обновлениями Camera.
      */
     input_clock_.start();
 
+    /*
+     * input_timer_ является главным циклом
+     * клавиатурного движения Camera.
+     *
+     * Без этого таймера W/A/S/D только меняют bool-флаги,
+     * но сама Camera никогда не получает MoveForward/MoveLeft и т.д.
+     */
     input_timer_.setTimerType(Qt::PreciseTimer);
 
-    connect(&input_timer_, &QTimer::timeout, this, [this]() { TickInput(); UpdateCoordinatesLabel(); update(); });
+    connect(&input_timer_, &QTimer::timeout, this, [this]() {
+        TickInput();
+        UpdateCoordinatesLabel();
+        update();
+    });
 
     /*
-     * Примерно 60 обновлений в секунду.
+     * Около 60 обновлений в секунду.
      */
     input_timer_.start(16);
 }
@@ -676,6 +770,18 @@ void SceneViewport::paintGL() {
     shader_->SetFloat("uPointSoft", 0.05f);
     shader_->SetFloat("uDashFill", 1.0f);
 
+    /*
+     * PointLight теперь перемещается как обычный SceneObject.
+     *
+     * Поэтому реальная позиция источника каждый кадр
+     * берётся из Transform editor-объекта.
+     */
+    if (point_light_object_) {
+        point_light_.SetPosition(
+            point_light_object_->GetTransform().position
+        );
+    }
+
     shader_->SetVec3("uLightPosition", point_light_.GetPosition());
     shader_->SetVec3("uLightColor", point_light_.GetColor());
     /*
@@ -978,15 +1084,32 @@ std::shared_ptr<SceneObject> SceneViewport::GetSelectedObject() const {
     return selected_object_;
 }
 
+/**
+ * @brief Удаляет выбранный объект Scene.
+ *
+ * Point Light удаляется точно так же,
+ * как любой другой SceneObject.
+ */
 void SceneViewport::DeleteSelectedObject() {
     if (!selected_object_) {
         return;
     }
 
-    const bool removed = scene_.RemoveObject(selected_object_);
+    const bool removing_point_light =
+        selected_object_ == point_light_object_;
+
+    const bool removed =
+        scene_.RemoveObject(
+            selected_object_
+        );
 
     if (!removed) {
         return;
+    }
+
+    if (removing_point_light) {
+        point_light_object_.reset();
+        point_light_.SetEnabled(false);
     }
 
     selected_object_.reset();
@@ -1245,16 +1368,19 @@ void SceneViewport::ApplyModelFit(const std::vector<std::shared_ptr<SceneObject>
         transform.scale = model_scale;
     }
 }
-
+/**
+ * @brief Обрабатывает непрерывное движение Camera.
+ *
+ * Состояние WASD/QE задаётся в keyPressEvent/keyReleaseEvent,
+ * а этот метод выполняет фактическое перемещение Camera.
+ */
 void SceneViewport::TickInput() {
-    if (!hasFocus()) {
-        ResetInputState();
-        input_clock_.restart();
-        return;
-    }
-
     float delta_time = static_cast<float>(input_clock_.restart()) / 1000.0f;
 
+    /*
+     * Не позволяем большому delta time телепортировать Camera,
+     * например после остановки приложения debugger'ом.
+     */
     delta_time = std::min(delta_time, 0.05f);
 
     constexpr float move_speed = 2.0f;
@@ -1299,10 +1425,21 @@ void SceneViewport::UpdateProjectionTitle() {
     title_label_->setText(QString("Scene • %1 • Objects: %2") .arg(projection_name) .arg(scene_.GetObjects().size()));
 }
 
+/**
+ * @brief Сбрасывает состояние управления Camera
+ * при потере фокуса viewport.
+ *
+ * Это предотвращает "залипание" клавиш,
+ * если пользователь отпустил кнопку после перехода
+ * в другой элемент Editor.
+ */
 void SceneViewport::focusOutEvent(QFocusEvent* event) {
     ResetInputState();
     input_clock_.restart();
-    QOpenGLWidget::focusOutEvent(event);
+
+    QOpenGLWidget::focusOutEvent(
+        event
+    );
 }
 
 void SceneViewport::UpdateCoordinatesLabel() {
@@ -1532,6 +1669,32 @@ void SceneViewport::SelectObjectAt(const QPointF& mouse_position) {
             continue;
         }
 
+        /*
+         * Point Light выбирается по editor-сфере.
+         *
+         * Это позволяет кликнуть непосредственно по источнику
+         * во Viewport так же, как по обычной модели.
+         */
+        if (object->GetType() == SceneObject::Type::PointLight) {
+            float light_distance = 0.0f;
+
+            constexpr float light_selection_radius = 0.22f;
+
+            if (IntersectRayWithSphere(
+                    world_ray,
+                    object->GetTransform().position,
+                    light_selection_radius,
+                    light_distance
+                )) {
+                if (light_distance < nearest_world_distance) {
+                    nearest_world_distance = light_distance;
+                    nearest_object = object;
+                }
+                }
+
+            continue;
+        }
+
         if (!object->HasMesh()) {
             continue;
         }
@@ -1674,34 +1837,34 @@ void SceneViewport::keyPressEvent(QKeyEvent* event) {
 
     switch (event->key()) {
         case Qt::Key_W:
-            move_forward_ =
-                true;
-            break;
+            move_forward_ = true;
+            event->accept();
+            return;
 
         case Qt::Key_S:
-            move_backward_ =
-                true;
-            break;
+            move_backward_ = true;
+            event->accept();
+            return;
 
         case Qt::Key_A:
-            move_left_ =
-                true;
-            break;
+            move_left_ = true;
+            event->accept();
+            return;
 
         case Qt::Key_D:
-            move_right_ =
-                true;
-            break;
+            move_right_ = true;
+            event->accept();
+            return;
 
         case Qt::Key_E:
-            move_up_ =
-                true;
-            break;
+            move_up_ = true;
+            event->accept();
+            return;
 
         case Qt::Key_Q:
-            move_down_ =
-                true;
-            break;
+            move_down_ = true;
+            event->accept();
+            return;
 
         case Qt::Key_1:
         case Qt::Key_P:
@@ -2406,6 +2569,12 @@ void SceneViewport::CreatePrimitive(const QString& name, ImportedMeshData mesh_d
 void SceneViewport::ClearScene() {
     ResetInputState();
     scene_.Clear();
+    /*
+     * Point Light является обычным объектом Scene,
+     * поэтому Clear Scene удаляет и его.
+     */
+    point_light_object_.reset();
+    point_light_.SetEnabled(false);
 
     selected_object_.reset();
     pending_model_path_.clear();
@@ -2479,4 +2648,73 @@ bool SceneViewport::LoadScene(const QString& file_path) {
     update();
 
     return true;
+}
+
+/**
+ * @brief Создаёт Point Light и выбирает его.
+ *
+ * Метод предназначен для команды Create -> Light.
+ */
+void SceneViewport::CreatePointLight() {
+    CreatePointLightObject(true);
+}
+
+/**
+ * @brief Создаёт SceneObject для текущего PointLight.
+ *
+ * Само освещение пока рассчитывается через point_light_,
+ * а SceneObject отвечает за:
+ *
+ * - отображение в Hierarchy;
+ * - selection;
+ * - Transform;
+ * - Move Gizmo.
+ *
+ * @param select_object Нужно ли сразу выбрать источник.
+ */
+void SceneViewport::CreatePointLightObject(bool select_object) {
+    /*
+     * Текущий renderer пока поддерживает один PointLight.
+     * Поэтому второй источник сейчас не создаём.
+     */
+    if (point_light_object_) {
+        if (select_object) {
+            selected_object_ = point_light_object_;
+            NotifySelectionChanged();
+            update();
+        }
+
+        return;
+    }
+
+    auto object = std::make_shared<SceneObject>("Point Light");
+
+    object->SetType(
+        SceneObject::Type::PointLight
+    );
+
+    /*
+     * Начальную позицию переносим из текущего PointLight
+     * в обычный Transform SceneObject.
+     */
+    object->GetTransform().position =
+        point_light_.GetPosition();
+
+    object->GetTransform().rotation =
+        Vec3{0.0f, 0.0f, 0.0f};
+
+    object->GetTransform().scale =
+        Vec3{1.0f, 1.0f, 1.0f};
+
+    scene_.AddObject(object);
+
+    point_light_object_ = object;
+    point_light_.SetEnabled(true);
+
+    if (select_object) {
+        selected_object_ = object;
+        NotifySelectionChanged();
+    }
+
+    update();
 }

@@ -12,12 +12,19 @@
 
 class SceneObject {
 public:
+    /**
+     * @brief Тип объекта сцены.
+     *
+     * Тип используется Editor для определения
+     * поведения объекта в Hierarchy, Inspector и Renderer.
+     */
     enum class Type {
         Empty,
         Cube,
         Plane,
         Sphere,
-        ImportedModel
+        ImportedModel,
+        PointLight
     };
 
     struct SceneRenderPart {

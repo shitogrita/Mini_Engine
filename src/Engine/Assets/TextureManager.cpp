@@ -47,7 +47,6 @@ std::shared_ptr<Texture2D> TextureManager::Load(const std::filesystem::path& pat
             << normalized_path
             << '\n';
 
-        return nullptr;
     }
 
     if (!std::filesystem::is_regular_file(normalized_path)) {

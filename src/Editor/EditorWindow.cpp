@@ -84,6 +84,23 @@ void EditorWindow::CreateActions() {
     connect(save_scene_action_, &QAction::triggered, this, &EditorWindow::SaveScene);
     connect(open_scene_action_, &QAction::triggered, this, &EditorWindow::OpenScene);
     connect(exit_action_, &QAction::triggered, this, &QWidget::close);
+    /**
+     * Создание Point Light работает так же,
+     * как создание Cube / Plane / Sphere.
+     */
+    connect(create_light_action_, &QAction::triggered, this, [this]() {
+        scene_viewport_->CreatePointLight();
+
+        hierarchy_panel_->Refresh();
+
+        hierarchy_panel_->SetSelectedObject(
+            scene_viewport_->GetSelectedObject()
+        );
+
+        inspector_panel_->SetSelectedObject(
+            scene_viewport_->GetSelectedObject()
+        );
+    });
     connect(
      clear_scene_action_,
      &QAction::triggered,

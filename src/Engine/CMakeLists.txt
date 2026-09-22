@@ -58,6 +58,7 @@ add_library(
         Scene/BoundingBox.cpp
         Scene/BoundingBox.h
         Scene/PointLight.h
+        Scene/PointLight.cpp
         Scene/SceneSerializer.cpp
         Scene/SceneSerializer.h
 

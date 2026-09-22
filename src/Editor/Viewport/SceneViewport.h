@@ -48,6 +48,24 @@ public:
         Orthographic
     };
 
+    /**
+     * @brief Тип SceneObject.
+     *
+     * Тип используется Editor для определения
+     * специфического поведения объекта:
+     * обычная геометрия, импортированная модель
+     * или источник света.
+     */
+
+    enum class Type {
+        Empty,
+        Cube,
+        Plane,
+        Sphere,
+        ImportedModel,
+        PointLight
+    };
+
     using SelectionChangedCallback = std::function<void(std::shared_ptr<SceneObject>)>;
     using TransformChangedCallback = std::function<void()>;
 
@@ -93,6 +111,14 @@ public:
      * @return Константная ссылка на PointLight.
      */
     const PointLight& GetPointLight() const;
+
+    /**
+     * @brief Создаёт Point Light как отдельный объект сцены.
+     *
+     * Источник появляется в Hierarchy и может быть выбран
+     * и перемещён так же, как остальные SceneObject.
+     */
+    void CreatePointLight();
 
 protected:
     void initializeGL() override;
@@ -159,7 +185,6 @@ private:
     Renderer renderer_;
     Camera camera_;
     Scene scene_;
-    PointLight point_light_;
 
     std::shared_ptr<SceneObject> selected_object_;
 
@@ -218,4 +243,22 @@ private:
     ProjectionMode projection_mode_ = ProjectionMode::Perspective;
     float orthographic_half_height_ = 5.0f;
     bool gl_initialized_ = false;
+
+    PointLight point_light_;
+
+    /**
+     * @brief Создаёт editor-объект Point Light.
+     *
+     * @param select_object Если true, созданный источник
+     * сразу становится выбранным.
+     */
+    void CreatePointLightObject(bool select_object);
+
+    /**
+     * @brief SceneObject, представляющий источник света.
+     *
+     * Transform этого объекта определяет положение
+     * реального PointLight в сцене.
+     */
+    std::shared_ptr<SceneObject> point_light_object_;
 };
