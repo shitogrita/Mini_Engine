@@ -77,6 +77,23 @@ public:
     void SetMaterialTexture(Material& material, const QString& file_path);
     bool LoadScene(const QString& file_path);
 
+    /**
+     * @brief Возвращает редактируемый PointLight сцены.
+     *
+     * Метод используется Editor UI для изменения
+     * позиции, цвета и интенсивности источника.
+     *
+     * @return Ссылка на PointLight.
+     */
+    PointLight& GetPointLight();
+
+    /**
+     * @brief Возвращает PointLight только для чтения.
+     *
+     * @return Константная ссылка на PointLight.
+     */
+    const PointLight& GetPointLight() const;
+
 protected:
     void initializeGL() override;
     void resizeGL(int width, int height) override;

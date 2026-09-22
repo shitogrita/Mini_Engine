@@ -11,6 +11,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QVBoxLayout>
+#include <QCheckBox>
 
 #include <algorithm>
 #include <utility>
@@ -93,6 +94,63 @@ void InspectorPanel::CreateLayout() {
     material_layout->setHorizontalSpacing(6);
     material_layout->setVerticalSpacing(6);
 
+    /*
+     * PointLight.
+     *
+     * Источник света пока один на SceneViewport,
+     * поэтому его настройки отображаются отдельным
+     * блоком Inspector независимо от выбранного SceneObject.
+     */
+    light_label_ = new QLabel("Point Light", this);
+
+    light_label_->setStyleSheet(
+        "font-weight: 600;"
+    );
+
+    QGridLayout* light_layout = new QGridLayout();
+
+    light_layout->setHorizontalSpacing(6);
+    light_layout->setVerticalSpacing(6);
+
+    light_position_x_ = CreateTransformSpinBox();
+    light_position_y_ = CreateTransformSpinBox();
+    light_position_z_ = CreateTransformSpinBox();
+
+    light_intensity_ = CreateMaterialSpinBox(
+        0.0,
+        100.0,
+        0.1
+    );
+
+    light_color_button_ = new QPushButton(
+        "Select Color",
+        this
+    );
+
+    light_enabled_ = new QCheckBox(
+        "Enabled",
+        this
+    );
+
+    light_layout->addWidget(new QLabel(""), 0, 0);
+    light_layout->addWidget(new QLabel("X"), 0, 1);
+    light_layout->addWidget(new QLabel("Y"), 0, 2);
+    light_layout->addWidget(new QLabel("Z"), 0, 3);
+
+    light_layout->addWidget(new QLabel("Position"), 1, 0);
+    light_layout->addWidget(light_position_x_, 1, 1);
+    light_layout->addWidget(light_position_y_, 1, 2);
+    light_layout->addWidget(light_position_z_, 1, 3);
+
+    light_layout->addWidget(new QLabel("Color"), 2, 0);
+    light_layout->addWidget(light_color_button_, 2, 1, 1, 3);
+
+    light_layout->addWidget(new QLabel("Intensity"), 3, 0);
+    light_layout->addWidget(light_intensity_, 3, 1, 1, 3);
+
+    light_layout->addWidget(new QLabel("State"), 4, 0);
+    light_layout->addWidget(light_enabled_, 4, 1, 1, 3);
+
     material_combo_ = new QComboBox(this);
 
     material_color_button_ = new QPushButton("Select Color", this);
@@ -147,6 +205,9 @@ void InspectorPanel::CreateLayout() {
 
     main_layout->addWidget(material_label_);
     main_layout->addLayout(material_layout);
+
+    main_layout->addWidget(light_label_);
+    main_layout->addLayout(light_layout);
 
     main_layout->addWidget(information_label_);
 
@@ -421,6 +482,116 @@ void InspectorPanel::CreateLayout() {
             }
         }
     );
+
+    /**
+     * Обновляет позицию PointLight из полей Inspector.
+     */
+    const auto update_light_position = [this]() {
+        if (updating_fields_ || point_light_ == nullptr) {
+            return;
+        }
+
+        point_light_->SetPosition(
+            Vec3{
+                static_cast<float>(light_position_x_->value()),
+                static_cast<float>(light_position_y_->value()),
+                static_cast<float>(light_position_z_->value())
+            }
+        );
+
+        if (light_changed_callback_) {
+            light_changed_callback_();
+        }
+    };
+
+    connect(light_position_x_, &QDoubleSpinBox::valueChanged, this, [update_light_position](double) {
+        update_light_position();
+    });
+
+    connect(light_position_y_, &QDoubleSpinBox::valueChanged, this, [update_light_position](double) {
+        update_light_position();
+    });
+
+    connect(light_position_z_, &QDoubleSpinBox::valueChanged, this, [update_light_position](double) {
+        update_light_position();
+    });
+
+    /**
+     * Изменяет яркость PointLight.
+     */
+    connect(light_intensity_, &QDoubleSpinBox::valueChanged, this, [this](double value) {
+        if (updating_fields_ || point_light_ == nullptr) {
+            return;
+        }
+
+        point_light_->SetIntensity(
+            static_cast<float>(value)
+        );
+
+        if (light_changed_callback_) {
+            light_changed_callback_();
+        }
+    });
+
+    /**
+     * Включает или выключает PointLight.
+     */
+    connect(light_enabled_, &QCheckBox::toggled, this, [this](bool enabled) {
+        if (updating_fields_ || point_light_ == nullptr) {
+            return;
+        }
+
+        point_light_->SetEnabled(enabled);
+
+        if (light_changed_callback_) {
+            light_changed_callback_();
+        }
+    });
+
+    /**
+     * Открывает стандартный Qt Color Picker
+     * для изменения цвета PointLight.
+     */
+    connect(light_color_button_, &QPushButton::clicked, this, [this]() {
+        if (point_light_ == nullptr) {
+            return;
+        }
+
+        const Vec3& color =
+            point_light_->GetColor();
+
+        const QColor initial_color =
+            QColor::fromRgbF(
+                std::clamp(color.x, 0.0f, 1.0f),
+                std::clamp(color.y, 0.0f, 1.0f),
+                std::clamp(color.z, 0.0f, 1.0f)
+            );
+
+        const QColor selected_color =
+            QColorDialog::getColor(
+                initial_color,
+                this,
+                "Point Light Color"
+            );
+
+        if (!selected_color.isValid()) {
+            return;
+        }
+
+        point_light_->SetColor(
+            Vec3{
+                static_cast<float>(selected_color.redF()),
+                static_cast<float>(selected_color.greenF()),
+                static_cast<float>(selected_color.blueF())
+            }
+        );
+
+        UpdateLightColorButton();
+
+        if (light_changed_callback_) {
+            light_changed_callback_();
+        }
+    });
 }
 
 QDoubleSpinBox* InspectorPanel::CreateTransformSpinBox() {
@@ -700,4 +871,96 @@ void InspectorPanel::SetTextureChangedCallback(
     std::function<void(Material&, const QString&)> callback) {
 
     texture_changed_callback_ = std::move(callback);
+}
+
+/**
+ * @brief Подключает PointLight к Inspector.
+ *
+ * Inspector не владеет источником света.
+ * PointLight продолжает принадлежать SceneViewport.
+ *
+ * После подключения текущие параметры света
+ * сразу отображаются в пользовательском интерфейсе.
+ *
+ * @param point_light Указатель на PointLight сцены.
+ */
+void InspectorPanel::SetPointLight(PointLight* point_light) {
+    point_light_ = point_light;
+    UpdateLightFields();
+}
+
+/**
+ * @brief Устанавливает callback изменения PointLight.
+ *
+ * Callback вызывается после изменения:
+ * - позиции;
+ * - цвета;
+ * - интенсивности;
+ * - состояния Enabled.
+ *
+ * EditorWindow использует его для немедленной
+ * перерисовки SceneViewport.
+ *
+ * @param callback Функция, вызываемая после изменения света.
+ */
+void InspectorPanel::SetLightChangedCallback(std::function<void()> callback) {
+    light_changed_callback_ = std::move(callback);
+}
+
+/**
+ * @brief Обновляет элементы Inspector
+ * текущими параметрами PointLight.
+ *
+ * Метод используется после подключения источника света
+ * и может использоваться в дальнейшем после изменения
+ * PointLight через Gizmo.
+ */
+void InspectorPanel::UpdateLightFields() {
+    if (point_light_ == nullptr) {
+        return;
+    }
+
+    updating_fields_ = true;
+
+    const Vec3& position = point_light_->GetPosition();
+
+    light_position_x_->setValue(position.x);
+    light_position_y_->setValue(position.y);
+    light_position_z_->setValue(position.z);
+
+    light_intensity_->setValue(point_light_->GetIntensity());
+    light_enabled_->setChecked(point_light_->IsEnabled());
+
+    UpdateLightColorButton();
+
+    updating_fields_ = false;
+}
+
+/**
+ * @brief Обновляет внешний вид кнопки выбора цвета света.
+ *
+ * Цвет фона кнопки соответствует текущему RGB-цвету
+ * PointLight, благодаря чему цвет источника виден
+ * непосредственно в Inspector.
+ */
+void InspectorPanel::UpdateLightColorButton() {
+    if (point_light_ == nullptr || light_color_button_ == nullptr) {
+        return;
+    }
+
+    const Vec3& color = point_light_->GetColor();
+
+    const QColor q_color = QColor::fromRgbF(
+        std::clamp(color.x, 0.0f, 1.0f),
+        std::clamp(color.y, 0.0f, 1.0f),
+        std::clamp(color.z, 0.0f, 1.0f)
+    );
+
+    light_color_button_->setStyleSheet(
+        QString(
+            "background-color: %1;"
+            "border: 1px solid #666;"
+            "min-height: 22px;"
+        ).arg(q_color.name())
+    );
 }

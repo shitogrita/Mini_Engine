@@ -678,7 +678,18 @@ void SceneViewport::paintGL() {
 
     shader_->SetVec3("uLightPosition", point_light_.GetPosition());
     shader_->SetVec3("uLightColor", point_light_.GetColor());
-    shader_->SetFloat("uLightIntensity", point_light_.GetIntensity());
+    /*
+     * Выключенный PointLight передаёт нулевую интенсивность.
+     *
+     * Это позволяет не добавлять отдельный uniform
+     * только ради enabled-состояния.
+     */
+    shader_->SetFloat(
+        "uLightIntensity",
+        point_light_.IsEnabled()
+            ? point_light_.GetIntensity()
+            : 0.0f
+    );
     shader_->SetVec3("uViewPosition", camera_.GetPosition());
 
     /*
@@ -812,9 +823,10 @@ void SceneViewport::paintGL() {
     shader_->SetInt("uHasDiffuseTexture", 0);
 
     /*
-     * Визуализация PointLight.
+     * Выключенный источник не отображает
+     * editor-маркер в Scene View.
      */
-    if (light_shader_ && light_mesh_) {
+    if (point_light_.IsEnabled() && light_shader_ && light_mesh_) {
         const Vec3& light_position = point_light_.GetPosition();
 
         const Matrix4 light_model = AffineTransformation::Translation4(light_position.x, light_position.y, light_position.z);
@@ -926,6 +938,20 @@ Scene& SceneViewport::GetScene() {
 
 const Scene& SceneViewport::GetScene() const {
     return scene_;
+}
+
+/**
+ * @brief Возвращает редактируемый PointLight viewport.
+ */
+PointLight& SceneViewport::GetPointLight() {
+    return point_light_;
+}
+
+/**
+ * @brief Возвращает PointLight только для чтения.
+ */
+const PointLight& SceneViewport::GetPointLight() const {
+    return point_light_;
 }
 
 void SceneViewport::SetSelectedObject(std::shared_ptr<SceneObject> object) {

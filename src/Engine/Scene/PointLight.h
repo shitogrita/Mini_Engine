@@ -3,47 +3,116 @@
 #include "Engine/Math/matrix_types.h"
 
 /**
- * @brief Точечный источник света.
+ * @brief Точечный источник света сцены.
  *
- * Излучает свет из одной позиции во всех направлениях.
- * На данном этапе хранит только базовые параметры,
- * необходимые для простого освещения.
+ * PointLight хранит параметры, необходимые
+ * для расчёта освещения в Renderer:
+ *
+ * - позицию источника в World Space;
+ * - цвет света;
+ * - интенсивность;
+ * - состояние включения.
+ *
+ * Сам PointLight не содержит Mesh.
+ * Сфера, отображаемая в SceneViewport,
+ * является только editor-визуализацией источника.
  */
 class PointLight {
 public:
-	PointLight() = default;
+    /**
+     * @brief Возвращает позицию источника света.
+     *
+     * @return Позиция в World Space.
+     */
+    const Vec3& GetPosition() const {
+        return position_;
+    }
 
-	PointLight(const Vec3& position, const Vec3& color)
-		: position_(position),
-		  color_(color) {
-	}
+    /**
+     * @brief Изменяет позицию источника света.
+     *
+     * @param position Новая позиция в World Space.
+     */
+    void SetPosition(const Vec3& position) {
+        position_ = position;
+    }
 
-	const Vec3& GetPosition() const {
-		return position_;
-	}
+    /**
+     * @brief Возвращает цвет света.
+     *
+     * Компоненты RGB находятся в диапазоне [0, 1].
+     *
+     * @return Цвет источника.
+     */
+    const Vec3& GetColor() const {
+        return color_;
+    }
 
-	void SetPosition(const Vec3& position) {
-		position_ = position;
-	}
+    /**
+     * @brief Изменяет цвет света.
+     *
+     * @param color Новый RGB-цвет.
+     */
+    void SetColor(const Vec3& color) {
+        color_ = color;
+    }
 
-	const Vec3& GetColor() const {
-		return color_;
-	}
+    /**
+     * @brief Возвращает интенсивность света.
+     *
+     * @return Текущая интенсивность.
+     */
+    float GetIntensity() const {
+        return intensity_;
+    }
 
-	void SetColor(const Vec3& color) {
-		color_ = color;
-	}
+    /**
+     * @brief Изменяет интенсивность света.
+     *
+     * Отрицательная интенсивность не допускается.
+     *
+     * @param intensity Новая интенсивность.
+     */
+    void SetIntensity(float intensity) {
+        intensity_ = intensity < 0.0f ? 0.0f : intensity;
+    }
 
-	float GetIntensity() const {
-		return intensity_;
-	}
+    /**
+     * @brief Проверяет, включён ли источник света.
+     *
+     * @return true, если PointLight участвует в освещении.
+     */
+    bool IsEnabled() const {
+        return enabled_;
+    }
 
-	void SetIntensity(float intensity) {
-		intensity_ = intensity;
-	}
+    /**
+     * @brief Включает или выключает источник света.
+     *
+     * @param enabled Новое состояние.
+     */
+    void SetEnabled(bool enabled) {
+        enabled_ = enabled;
+    }
 
 private:
-	Vec3 position_{1.2f, 1.0f, 2.0f};
-	Vec3 color_{1.0f, 1.0f, 1.0f};
-	float intensity_{1.0f};
+    /**
+     * @brief Позиция источника в World Space.
+     */
+    Vec3 position_{2.0f, 3.0f, 2.0f};
+
+    /**
+     * @brief Цвет источника.
+     */
+    Vec3 color_{1.0f, 1.0f, 1.0f};
+
+    /**
+     * @brief Множитель яркости света.
+     */
+    float intensity_ = 1.0f;
+
+    /**
+     * @brief Участвует ли источник в освещении.
+     */
+    bool enabled_ = true;
 };
