@@ -69,3 +69,46 @@ Mini Engine — учебный 3D-движок и редактор сцен, н�
 - Sphere.
 
 OBJ-модели можно импортировать в сцену через открытие файла модели.
+
+## Сборка
+
+### Требования
+
+Для сборки проекта необходимы:
+
+- C++17;
+- CMake 3.20+;
+- Ninja;
+- Qt 6;
+- OpenGL 3.3;
+- GLFW;
+- GLAD.
+
+На macOS проект собирался с использованием:
+
+- AppleClang;
+- Homebrew;
+- Qt 6;
+- Ninja.
+
+### Сборка на macOS
+
+Из корня проекта:
+
+```bash
+cmake -S . -B build -G Ninja
+cmake --build build
+```
+
+Запуск проекта.
+```bash
+./build/src/Editor/mini_engine_editor
+```
+
+Если Qt установлен через Homebrew и CMake не находит его автоматически, можно явно указать путь:
+```bash
+cmake -S . -B build -G Ninja \
+-DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+
+cmake --build build
+```
