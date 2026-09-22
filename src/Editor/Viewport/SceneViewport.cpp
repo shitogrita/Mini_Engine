@@ -752,56 +752,19 @@ void SceneViewport::paintGL() {
         renderer_.DrawLines(*grid_mesh_, *shader_, view_projection, 1.0f);
     }
 
-    if (axis_x_mesh_) {
-        shader_->SetVec4(
-            "uColor",
-            Vec4{0.82f, 0.30f, 0.30f, 1.0f}
-            );
-
-        renderer_.DrawLines(
-            *axis_x_mesh_,
-            *shader_,
-            view_projection,
-            2.0f
-        );
+    if (axes_visible_ && axis_x_mesh_) {
+        shader_->SetVec4("uColor", Vec4{0.82f, 0.30f, 0.30f, 1.0f});
+        renderer_.DrawLines(*axis_x_mesh_, *shader_, view_projection, 2.0f);
     }
 
-    if (axis_z_mesh_) {
-        shader_->SetVec4(
-            "uColor",
-            Vec4{
-                0.30f,
-                0.52f,
-                0.90f,
-                1.0f
-            }
-        );
-
-        renderer_.DrawLines(
-            *axis_z_mesh_,
-            *shader_,
-            view_projection,
-            2.0f
-        );
+    if (axes_visible_ && axis_z_mesh_) {
+        shader_->SetVec4("uColor", Vec4{0.30f, 0.52f, 0.90f, 1.0f});
+        renderer_.DrawLines(*axis_z_mesh_, *shader_, view_projection, 2.0f);
     }
 
-    if (axis_y_mesh_) {
-        shader_->SetVec4(
-            "uColor",
-            Vec4{
-                0.40f,
-                0.75f,
-                0.42f,
-                1.0f
-            }
-        );
-
-        renderer_.DrawLines(
-            *axis_y_mesh_,
-            *shader_,
-            view_projection,
-            2.0f
-        );
+    if (axes_visible_ && axis_y_mesh_) {
+        shader_->SetVec4("uColor", Vec4{0.40f, 0.75f, 0.42f, 1.0f});
+        renderer_.DrawLines(*axis_y_mesh_, *shader_, view_projection, 2.0f);
     }
 
     /*
@@ -1991,9 +1954,7 @@ void SceneViewport::SelectObjectAt(
     update();
 }
 
-void SceneViewport::keyPressEvent(
-    QKeyEvent* event
-) {
+void SceneViewport::keyPressEvent( QKeyEvent* event) {
     if (event->isAutoRepeat()) {
         return;
     }
@@ -2062,6 +2023,47 @@ void SceneViewport::keyPressEvent(
         case Qt::Key_G:
             grid_visible_ = !grid_visible_;
             update();
+            break;
+
+        case Qt::Key_Escape:
+            selected_object_.reset();
+
+            UpdateCoordinatesLabel();
+            NotifySelectionChanged();
+
+            update();
+            break;
+
+        case Qt::Key_R:
+            if (selected_object_) {
+                Transform& transform = selected_object_->GetTransform();
+
+                transform.position = Vec3{0.0f, 0.0f, 0.0f};
+                transform.rotation = Vec3{0.0f, 0.0f, 0.0f};
+                transform.scale = Vec3{1.0f, 1.0f, 1.0f};
+
+                if (transform_changed_callback_) {
+                    transform_changed_callback_();
+                }
+
+                UpdateCoordinatesLabel();
+                update();
+            }
+            break;
+
+        case Qt::Key_X:
+            axes_visible_ = !axes_visible_;
+            update();
+            break;
+
+        case Qt::Key_C:
+            coordinates_visible_ = !coordinates_visible_;
+
+            if (coordinates_label_) {
+                coordinates_label_->setVisible(
+                    coordinates_visible_
+                );
+            }
             break;
 
         case Qt::Key_Delete:

@@ -456,6 +456,8 @@ private:
     bool gizmo_visible_ = true;
     bool lighting_enabled_ = true;
 
+    bool axes_visible_ = true;
+    bool coordinates_visible_ = true;
     /**
      * @brief Предыдущая позиция мыши
      * при вращении камеры.
