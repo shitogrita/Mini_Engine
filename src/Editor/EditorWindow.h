@@ -23,10 +23,14 @@ private:
 	void ApplyEditorStyle();
 
 	void OpenModelFile();
+	void SaveScene();
+	void OpenScene();
 	void ClearScene();
 
 	QAction* open_model_action_ = nullptr;
 	QAction* exit_action_ = nullptr;
+	QAction* open_scene_action_ = nullptr;
+	QAction* save_scene_action_ = nullptr;
 
 	QAction* undo_action_ = nullptr;
 	QAction* redo_action_ = nullptr;

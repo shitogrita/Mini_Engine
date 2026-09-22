@@ -58,6 +58,8 @@ add_library(
         Scene/BoundingBox.cpp
         Scene/BoundingBox.h
         Scene/PointLight.h
+        Scene/SceneSerializer.cpp
+        Scene/SceneSerializer.h
 
         ThirdParty/stb/stb_image.h
 )

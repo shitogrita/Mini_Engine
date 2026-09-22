@@ -6,6 +6,7 @@
 #include "Engine/Platform/OpenGL/OpenGLLoader.h"
 #include "Engine/Scene/BoundingBox.h"
 #include "Engine/Renderer/PrimitiveGenerator.h"
+#include "Engine/Scene/SceneSerializer.h"
 
 #include <QByteArray>
 #include <QFileInfo>
@@ -1180,6 +1181,9 @@ void SceneViewport::ImportPendingModel() {
         if (!object) {
             continue;
         }
+
+        object->SetType(SceneObject::Type::ImportedModel);
+        object->SetSourcePath(model_path.toStdString());
 
         Transform& transform = object->GetTransform();
 
@@ -2893,18 +2897,18 @@ void SceneViewport::SetTransformChangedCallback(
 }
 
 void SceneViewport::CreateCube() {
-    CreatePrimitive("Cube", PrimitiveGenerator::CreateCube());
+    CreatePrimitive("Cube", PrimitiveGenerator::CreateCube(), SceneObject::Type::Cube);
 }
 
 void SceneViewport::CreatePlane() {
-    CreatePrimitive("Plane", PrimitiveGenerator::CreatePlane());
+    CreatePrimitive("Plane", PrimitiveGenerator::CreatePlane(), SceneObject::Type::Plane);
 }
 
 void SceneViewport::CreateSphere() {
-    CreatePrimitive("Sphere", PrimitiveGenerator::CreateSphere());
+    CreatePrimitive("Sphere", PrimitiveGenerator::CreateSphere(), SceneObject::Type::Sphere);
 }
 
-void SceneViewport::CreatePrimitive(const QString& name, ImportedMeshData mesh_data) {
+void SceneViewport::CreatePrimitive(const QString& name, ImportedMeshData mesh_data, SceneObject::Type type) {
     if (!gl_initialized_) {
         return;
     }
@@ -2915,11 +2919,14 @@ void SceneViewport::CreatePrimitive(const QString& name, ImportedMeshData mesh_d
     auto mesh = std::make_shared<Mesh>(mesh_data);
     auto object = std::make_shared<SceneObject>(name.toStdString(), std::move(mesh));
 
+    object->SetType(type);
     object->SetBoundingBox(bounding_box);
     object->GetTransform().position = FindSpawnPosition();
 
     scene_.AddObject(object);
+
     content_label_->hide();
+
     doneCurrent();
 
     selected_object_ = object;
@@ -2927,6 +2934,7 @@ void SceneViewport::CreatePrimitive(const QString& name, ImportedMeshData mesh_d
     UpdateProjectionTitle();
     UpdateCoordinatesLabel();
     NotifySelectionChanged();
+
     update();
 }
 
@@ -2956,28 +2964,58 @@ void SceneViewport::ResetInputState() {
     active_gizmo_axis_ = GizmoAxis::None;
 }
 
-void SceneViewport::SetMaterialTexture(
-    Material& material,
-    const QString& file_path) {
-
-    if (file_path.isEmpty()) {
+void SceneViewport::SetMaterialTexture(Material& material, const QString& path) {
+    if (path.isEmpty()) {
         return;
     }
 
     makeCurrent();
 
-    std::shared_ptr<Texture2D> texture =
-        texture_manager_.Load(
-            file_path.toStdString()
-        );
+    std::shared_ptr<Texture2D> texture = texture_manager_.Load(path.toStdString());
 
     if (texture) {
-        material.SetDiffuseTexture(
-            std::move(texture)
-        );
+        material.SetDiffuseTexture(std::move(texture));
+        material.SetDiffuseTexturePath(path.toStdString());
     }
 
     doneCurrent();
 
     update();
+}
+
+bool SceneViewport::LoadScene(const QString& file_path) {
+    if (file_path.isEmpty() || !gl_initialized_) {
+        return false;
+    }
+
+    makeCurrent();
+
+    const bool loaded = SceneSerializer::Load(
+        scene_,
+        file_path.toStdString(),
+        texture_manager_
+    );
+
+    doneCurrent();
+
+    if (!loaded) {
+        return false;
+    }
+
+    selected_object_.reset();
+
+    if (scene_.GetObjects().empty()) {
+        content_label_->show();
+        content_label_->setText("Scene is empty");
+    } else {
+        content_label_->hide();
+    }
+
+    UpdateProjectionTitle();
+    UpdateCoordinatesLabel();
+
+    setFocus();
+    update();
+
+    return true;
 }

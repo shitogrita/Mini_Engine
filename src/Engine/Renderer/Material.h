@@ -1,8 +1,10 @@
 #pragma once
 
 #include "Engine/Math/matrix_types.h"
+#include "Engine/Renderer/Texture2D.h"
 
 #include <memory>
+#include <filesystem>
 
 /**
  * @brief Описывает визуальные свойства поверхности объекта.
@@ -16,39 +18,45 @@
  * Shininess         размер/резкость блика
  */
 
-class Texture2D;
-
 class Material {
 public:
+	Material() = default;
 
-	void SetDiffuseTexture(std::shared_ptr<Texture2D> texture) { diffuse_texture_ = std::move(texture); }
+	const Vec3& GetColor() const;
+	void SetColor(const Vec3& color);
 
-	const std::shared_ptr<Texture2D>& GetDiffuseTexture() const { return diffuse_texture_; }
+	float GetAmbientStrength() const;
+	void SetAmbientStrength(float value);
 
-	bool HasDiffuseTexture() const { return diffuse_texture_ != nullptr; }
+	float GetDiffuseStrength() const;
+	void SetDiffuseStrength(float value);
 
-	const Vec3& GetColor() const { return color_; }
-	void SetColor(const Vec3& color) { color_ = color; }
+	float GetSpecularStrength() const;
+	void SetSpecularStrength(float value);
 
-	float GetAmbientStrength() const { return ambient_strength_; }
-	void SetAmbientStrength(float value) { ambient_strength_ = value; }
+	float GetShininess() const;
+	void SetShininess(float value);
 
-	float GetDiffuseStrength() const { return diffuse_strength_; }
-	void SetDiffuseStrength(float value) { diffuse_strength_ = value; }
+	void SetDiffuseTexture(std::shared_ptr<Texture2D> texture);
+	const std::shared_ptr<Texture2D>& GetDiffuseTexture() const;
+	bool HasDiffuseTexture() const;
+	void ClearDiffuseTexture();
 
-	float GetSpecularStrength() const { return specular_strength_; }
-	void SetSpecularStrength(float value) { specular_strength_ = value; }
-
-	float GetShininess() const { return shininess_; }
-	void SetShininess(float value) { shininess_ = value; }
+	void SetDiffuseTexturePath(std::filesystem::path path);
+	const std::filesystem::path& GetDiffuseTexturePath() const;
 
 private:
-	Vec3 color_{0.67f, 0.76f, 0.91f};
+	Vec3 color_{
+		0.67f,
+		0.76f,
+		0.91f
+	};
 
-	float ambient_strength_{0.15f};
-	float diffuse_strength_{1.0f};
-	float specular_strength_{0.5f};
-	float shininess_{32.0f};
+	float ambient_strength_ = 0.20f;
+	float diffuse_strength_ = 1.00f;
+	float specular_strength_ = 0.50f;
+	float shininess_ = 32.0f;
 
 	std::shared_ptr<Texture2D> diffuse_texture_;
+	std::filesystem::path diffuse_texture_path_;
 };

@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <filesystem>
 
 InspectorPanel::InspectorPanel(QWidget* parent)
     : QWidget(parent) {
@@ -638,10 +639,14 @@ void InspectorPanel::UpdateMaterialFields() {
     );
 
     updating_fields_ = false;
-    if (material->HasDiffuseTexture()) {
-        material_texture_name_->setText("Texture assigned");
-    } else {
+    const std::filesystem::path& texture_path = material->GetDiffuseTexturePath();
+
+    if (texture_path.empty()) {
         material_texture_name_->setText("None");
+    } else {
+        material_texture_name_->setText(
+            QString::fromStdString(texture_path.filename().string())
+        );
     }
 }
 

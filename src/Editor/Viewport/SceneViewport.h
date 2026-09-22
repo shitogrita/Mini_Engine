@@ -133,7 +133,7 @@ public:
     void ClearScene();
 
     void SetMaterialTexture(Material& material, const QString& file_path);
-
+    bool LoadScene(const QString& file_path);
 
 private:
 
@@ -260,7 +260,7 @@ private:
     /**
      * @brief вызов примитивов
      */
-    void CreatePrimitive(const QString& name, ImportedMeshData mesh_data);
+    void CreatePrimitive(const QString& name, ImportedMeshData mesh_data, SceneObject::Type type);
 
     PointLight point_light_;
 
@@ -328,7 +328,6 @@ protected:
     void wheelEvent(QWheelEvent* event) override;
 
     void focusOutEvent(QFocusEvent* event) override;
-
 
 private:
 

@@ -4,6 +4,7 @@
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProjectPanel.h"
 #include "Editor/Viewport/SceneViewport.h"
+#include "Engine/Scene/SceneSerializer.h"
 
 #include <QAction>
 #include <QDockWidget>
@@ -43,6 +44,11 @@ void EditorWindow::CreateActions() {
     open_model_action_ = new QAction("Open Model...", this);
     open_model_action_->setShortcut(QKeySequence::Open);
 
+    save_scene_action_ = new QAction("Save Scene...", this);
+    save_scene_action_->setShortcut(QKeySequence::Save);
+
+    open_scene_action_ = new QAction("Open Scene...", this);
+
     exit_action_ = new QAction("Exit", this);
     exit_action_->setShortcut(QKeySequence::Quit);
 
@@ -75,6 +81,8 @@ void EditorWindow::CreateActions() {
     about_action_ = new QAction("About", this);
 
     connect(open_model_action_, &QAction::triggered, this, &EditorWindow::OpenModelFile);
+    connect(save_scene_action_, &QAction::triggered, this, &EditorWindow::SaveScene);
+    connect(open_scene_action_, &QAction::triggered, this, &EditorWindow::OpenScene);
     connect(exit_action_, &QAction::triggered, this, &QWidget::close);
     connect(
      clear_scene_action_,
@@ -106,6 +114,9 @@ void EditorWindow::CreateActions() {
 
 void EditorWindow::CreateMenuBar() {
     QMenu* file_menu = menuBar()->addMenu("File");
+    file_menu->addAction(open_scene_action_);
+    file_menu->addAction(save_scene_action_);
+    file_menu->addSeparator();
     file_menu->addAction(open_model_action_);
     file_menu->addSeparator();
     file_menu->addAction(exit_action_);
@@ -426,6 +437,76 @@ void EditorWindow::ClearScene() {
     statusBar()->showMessage("Scene cleared");
 }
 
+void EditorWindow::SaveScene() {
+    QString file_path = QFileDialog::getSaveFileName(
+        this,
+        "Save Scene",
+        "scene.scene",
+        "Mini Engine Scene (*.scene)"
+    );
+
+    if (file_path.isEmpty()) {
+        return;
+    }
+
+    if (!file_path.endsWith(".scene", Qt::CaseInsensitive)) {
+        file_path += ".scene";
+    }
+
+    const bool saved = SceneSerializer::Save(
+        scene_viewport_->GetScene(),
+        file_path.toStdString()
+    );
+
+    if (!saved) {
+        QMessageBox::warning(
+            this,
+            "Save Scene",
+            "Failed to save scene."
+        );
+        return;
+    }
+
+    statusBar()->showMessage(
+        "Scene saved: " + QFileInfo(file_path).fileName(),
+        3000
+    );
+}
+
+void EditorWindow::OpenScene() {
+    const QString file_path = QFileDialog::getOpenFileName(
+        this,
+        "Open Scene",
+        QString(),
+        "Mini Engine Scene (*.scene)"
+    );
+
+    if (file_path.isEmpty()) {
+        return;
+    }
+
+    const bool loaded = scene_viewport_->LoadScene(file_path);
+
+    if (!loaded) {
+        QMessageBox::warning(
+            this,
+            "Open Scene",
+            "Failed to open scene."
+        );
+
+        return;
+    }
+
+    hierarchy_panel_->Refresh();
+    hierarchy_panel_->SetSelectedObject(nullptr);
+    inspector_panel_->SetSelectedObject(nullptr);
+
+    statusBar()->showMessage(
+        "Scene opened: " + QFileInfo(file_path).fileName(),
+        3000
+    );
+}
+
 void EditorWindow::ApplyEditorStyle() {
     setStyleSheet(
         R"(
@@ -604,5 +685,6 @@ void EditorWindow::ApplyEditorStyle() {
         )"
     );
 }
+
 
 

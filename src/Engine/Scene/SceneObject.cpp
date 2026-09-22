@@ -2,95 +2,99 @@
 
 #include <utility>
 
-
-SceneObject::SceneObject(std::string name ) : name_(std::move(name) ) {
+SceneObject::SceneObject(std::string name)
+    : name_(std::move(name)) {
 }
 
 SceneObject::SceneObject(std::string name, std::shared_ptr<Mesh> mesh)
-	: name_(std::move(name)), mesh_(std::move(mesh)) {
+    : name_(std::move(name)),
+      mesh_(std::move(mesh)) {
 }
 
-const std::string&
-SceneObject::GetName() const {
-	return name_;
+const std::string& SceneObject::GetName() const {
+    return name_;
 }
 
 void SceneObject::SetName(std::string name) {
-	name_ =
-		std::move(name);
+    name_ = std::move(name);
 }
 
-Transform&
-SceneObject::GetTransform() {
-	return transform_;
+Transform& SceneObject::GetTransform() {
+    return transform_;
 }
 
-const Transform&
-SceneObject::GetTransform() const {
-	return transform_;
+const Transform& SceneObject::GetTransform() const {
+    return transform_;
 }
 
 void SceneObject::SetMesh(std::shared_ptr<Mesh> mesh) {
-	mesh_ =
-		std::move(mesh);
+    mesh_ = std::move(mesh);
 }
 
-std::shared_ptr<Mesh>
-SceneObject::GetMesh() {
-	return mesh_;
+std::shared_ptr<Mesh> SceneObject::GetMesh() {
+    return mesh_;
 }
 
-std::shared_ptr<const Mesh>
-SceneObject::GetMesh() const {
-	return mesh_;
+std::shared_ptr<const Mesh> SceneObject::GetMesh() const {
+    return mesh_;
 }
 
 bool SceneObject::HasMesh() const {
-	return mesh_ != nullptr || !render_parts_.empty();
+    return mesh_ != nullptr || !render_parts_.empty();
 }
 
 void SceneObject::SetBoundingBox(const BoundingBox& bounding_box) {
-	bounding_box_ =
-		bounding_box;
+    bounding_box_ = bounding_box;
 }
 
-const BoundingBox&
-SceneObject::GetBoundingBox() const {
-	return bounding_box_;
+const BoundingBox& SceneObject::GetBoundingBox() const {
+    return bounding_box_;
 }
 
 Material& SceneObject::GetMaterial() {
-	return material_;
+    return material_;
 }
 
 const Material& SceneObject::GetMaterial() const {
-	return material_;
+    return material_;
 }
 
-void SceneObject::AddRenderPart(
-	std::string name,
-	std::shared_ptr<Mesh> mesh,
-	Material material) {
+void SceneObject::AddRenderPart(std::string name, std::shared_ptr<Mesh> mesh, Material material) {
+    if (!mesh) {
+        return;
+    }
 
-	if (!mesh) {
-		return;
-	}
-
-	render_parts_.push_back(SceneRenderPart{
-		std::move(name),
-		std::move(mesh),
-		std::move(material)
-	});
-}
-
-const std::vector<SceneObject::SceneRenderPart>& SceneObject::GetRenderParts() const {
-	return render_parts_;
-}
-
-bool SceneObject::HasRenderParts() const {
-	return !render_parts_.empty();
+    render_parts_.push_back(SceneRenderPart{
+        std::move(name),
+        std::move(mesh),
+        std::move(material)
+    });
 }
 
 std::vector<SceneObject::SceneRenderPart>& SceneObject::GetRenderParts() {
-	return render_parts_;
+    return render_parts_;
+}
+
+const std::vector<SceneObject::SceneRenderPart>& SceneObject::GetRenderParts() const {
+    return render_parts_;
+}
+
+bool SceneObject::HasRenderParts() const {
+    return !render_parts_.empty();
+}
+
+void SceneObject::SetType(Type type) {
+    type_ = type;
+}
+
+SceneObject::Type SceneObject::GetType() const {
+    return type_;
+}
+
+void SceneObject::SetSourcePath(std::filesystem::path path) {
+    source_path_ = std::move(path);
+}
+
+const std::filesystem::path& SceneObject::GetSourcePath() const {
+    return source_path_;
 }

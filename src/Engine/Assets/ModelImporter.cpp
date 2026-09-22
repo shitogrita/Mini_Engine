@@ -10,7 +10,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <iostream>
 
 /**
  * @brief Ищет материал по имени среди материалов,
@@ -20,16 +19,14 @@
  * @param name Имя материала из команды usemtl.
  * @return Указатель на найденный материал или nullptr.
  */
-static const ImportedMaterialData* FindMaterial(
-    const std::vector<ImportedMaterialData>& materials,
-    const std::string& name) {
-
+static const ImportedMaterialData* FindMaterial(const std::vector<ImportedMaterialData>& materials, const std::string& name) {
     const auto iterator = std::find_if(
         materials.begin(),
         materials.end(),
         [&name](const ImportedMaterialData& material) {
             return material.name == name;
-        });
+        }
+    );
 
     if (iterator == materials.end()) {
         return nullptr;
@@ -46,58 +43,31 @@ static const ImportedMaterialData* FindMaterial(
  * Ns используется как shininess.
  * map_Kd загружается через TextureManager.
  */
-static Material CreateMaterial(
-    const ImportedMaterialData* imported_material,
-    TextureManager& texture_manager) {
-
+static Material CreateMaterial(const ImportedMaterialData* imported_material, TextureManager& texture_manager) {
     Material material;
 
-    // Если материал отсутствует, оставляем стандартный Material.
     if (imported_material == nullptr) {
         return material;
     }
 
-    // Kd — диффузный цвет материала.
     material.SetColor(imported_material->diffuse_color);
-
-    // Ns — степень зеркального блика.
     material.SetShininess(imported_material->shininess);
 
-    // map_Kd — диффузная текстура материала.
     if (!imported_material->diffuse_texture_path.empty()) {
-        material.SetDiffuseTexture(
-            texture_manager.Load(imported_material->diffuse_texture_path)
+        std::shared_ptr<Texture2D> texture = texture_manager.Load(
+            imported_material->diffuse_texture_path
         );
+
+        if (texture) {
+            material.SetDiffuseTexture(std::move(texture));
+            material.SetDiffuseTexturePath(imported_material->diffuse_texture_path);
+        }
     }
 
     return material;
 }
 
-/**
- * @brief Создаёт BoundingBox для конкретной части модели.
- *
- * Используются render_vertices, потому что они содержат
- * только вершины конкретного ImportedMeshPart.
- *
- * Это важно для моделей с несколькими материалами:
- * каждая часть модели получает собственный BoundingBox,
- * а не BoundingBox всей OBJ-модели.
- */
-static BoundingBox CreateBoundingBox(const ImportedMeshData& mesh_data) {
-    std::vector<Vec3> points;
-    points.reserve(mesh_data.render_vertices.size());
-
-    for (const Vertex& vertex : mesh_data.render_vertices) {
-        points.push_back(vertex.position);
-    }
-
-    return BoundingBox::FromPoints(points);
-}
-
-std::vector<std::shared_ptr<SceneObject>> ModelImporter::ImportObj(
-    const std::filesystem::path& path,
-    TextureManager& texture_manager) {
-
+std::vector<std::shared_ptr<SceneObject>> ModelImporter::ImportObj(const std::filesystem::path& path, TextureManager& texture_manager) {
     ImportedModelData model_data;
 
     if (!ObjParser::Parse(path.string(), model_data)) {
@@ -105,6 +75,9 @@ std::vector<std::shared_ptr<SceneObject>> ModelImporter::ImportObj(
     }
 
     auto object = std::make_shared<SceneObject>(path.stem().string());
+
+    object->SetType(SceneObject::Type::ImportedModel);
+    object->SetSourcePath(path);
 
     std::vector<Vec3> bounding_points;
 
@@ -115,10 +88,15 @@ std::vector<std::shared_ptr<SceneObject>> ModelImporter::ImportObj(
 
         auto mesh = std::make_shared<Mesh>(part.mesh);
 
-        const ImportedMaterialData* imported_material =
-            FindMaterial(model_data.materials, part.material_name);
+        const ImportedMaterialData* imported_material = FindMaterial(
+            model_data.materials,
+            part.material_name
+        );
 
-        Material material = CreateMaterial(imported_material, texture_manager);
+        Material material = CreateMaterial(
+            imported_material,
+            texture_manager
+        );
 
         object->AddRenderPart(
             part.material_name.empty()
@@ -134,7 +112,9 @@ std::vector<std::shared_ptr<SceneObject>> ModelImporter::ImportObj(
     }
 
     if (!bounding_points.empty()) {
-        object->SetBoundingBox(BoundingBox::FromPoints(bounding_points));
+        object->SetBoundingBox(
+            BoundingBox::FromPoints(bounding_points)
+        );
     }
 
     if (!object->HasMesh()) {
