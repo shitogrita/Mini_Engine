@@ -452,6 +452,8 @@ private:
      */
     bool pointer_look_active_ = false;
 
+    bool grid_visible_ = true;
+
     /**
      * @brief Предыдущая позиция мыши
      * при вращении камеры.

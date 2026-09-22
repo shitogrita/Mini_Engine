@@ -747,35 +747,16 @@ void SceneViewport::paintGL() {
     shader_->SetInt("uLightingEnabled", 0);
     shader_->SetInt("uHasDiffuseTexture", 0);
 
-    if (grid_mesh_) {
-        shader_->SetVec4(
-            "uColor",
-            Vec4{
-                0.30f,
-                0.32f,
-                0.35f,
-                1.0f
-            }
-        );
-
-        renderer_.DrawLines(
-            *grid_mesh_,
-            *shader_,
-            view_projection,
-            1.0f
-        );
+    if (grid_visible_ && grid_mesh_) {
+        shader_->SetVec4("uColor", Vec4{0.30f, 0.32f, 0.35f, 1.0f});
+        renderer_.DrawLines(*grid_mesh_, *shader_, view_projection, 1.0f);
     }
 
     if (axis_x_mesh_) {
         shader_->SetVec4(
             "uColor",
-            Vec4{
-                0.82f,
-                0.30f,
-                0.30f,
-                1.0f
-            }
-        );
+            Vec4{0.82f, 0.30f, 0.30f, 1.0f}
+            );
 
         renderer_.DrawLines(
             *axis_x_mesh_,
@@ -2071,6 +2052,11 @@ void SceneViewport::keyPressEvent(
 
         case Qt::Key_F:
             FrameSelectedObject();
+            break;
+
+        case Qt::Key_G:
+            grid_visible_ = !grid_visible_;
+            update();
             break;
 
         case Qt::Key_Delete:
