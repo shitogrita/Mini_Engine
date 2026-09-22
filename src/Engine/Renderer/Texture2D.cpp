@@ -31,13 +31,32 @@ Texture2D::Texture2D( const std::filesystem::path& path ) {
         );
 
 
+    /**
+ * Если stb_image не смог декодировать изображение,
+ * сохраняем его диагностическое сообщение.
+ *
+ * Это важно для различения случаев:
+ *
+ * - файл отсутствует;
+ * - JPEG имеет неподдерживаемый формат;
+ * - файл повреждён;
+ * - расширение файла не соответствует содержимому.
+ */
     if (data == nullptr) {
+        const char* failure_reason =
+            stbi_failure_reason();
+
         throw std::runtime_error(
             "Failed to load texture: " +
-            path.string()
+            path.string() +
+            " | stb_image: " +
+            (
+                failure_reason != nullptr
+                    ? std::string(failure_reason)
+                    : std::string("unknown error")
+            )
         );
     }
-
 
     GLenum format = GL_RGB;
 

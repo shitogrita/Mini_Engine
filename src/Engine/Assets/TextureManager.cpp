@@ -1,55 +1,115 @@
 #include "Engine/Assets/TextureManager.h"
 
+#include <filesystem>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <string>
+
+/**
+ * @brief Загружает текстуру с диска или возвращает уже загруженную.
+ *
+ * TextureManager используется как cache:
+ *
+ * path
+ * -> Texture2D
+ *
+ * Если одна и та же текстура используется несколькими материалами,
+ * повторного чтения изображения и создания OpenGL texture не происходит.
+ *
+ * Ошибка загрузки отдельной текстуры не считается причиной
+ * для завершения всего приложения. В этом случае метод возвращает nullptr,
+ * а модель продолжает загружаться без этой текстуры.
+ *
+ * @param path Путь к изображению.
+ *
+ * @return Загруженная Texture2D или nullptr при ошибке.
+ */
 std::shared_ptr<Texture2D> TextureManager::Load(const std::filesystem::path& path) {
-    /**
-     * Делаем относительный путь абсолютным и нормализуем его.
-     *
-     * Например:
-     * Textures/brick.jpg
-     *
-     * может превратиться в:
-     * /Users/name/repo/Mini_Engine/Textures/brick.jpg
-     *
-     * Это необходимо для получения стабильного ключа кеша.
-     * Иначе разные записи одного пути могли бы восприниматься
-     * как разные текстуры.
-     */
+    if (path.empty()) {
+        return nullptr;
+    }
+
     const std::filesystem::path normalized_path =
-        std::filesystem::absolute(path).lexically_normal();
+        path.lexically_normal();
 
-    const std::string key = normalized_path.string();
+    /*
+     * До вызова stb_image проверяем существование файла.
+     *
+     * Это позволяет отличить:
+     *
+     * - неправильный путь;
+     * - существующий, но неподдерживаемый файл.
+     */
+    if (!std::filesystem::exists(normalized_path)) {
+        std::cerr
+            << "[TextureManager] Texture file does not exist: "
+            << normalized_path
+            << '\n';
 
-    // Проверяем, загружалась ли эта текстура раньше.
-    const auto iterator = textures_.find(key);
+        return nullptr;
+    }
+
+    if (!std::filesystem::is_regular_file(normalized_path)) {
+        std::cerr
+            << "[TextureManager] Texture path is not a regular file: "
+            << normalized_path
+            << '\n';
+
+        return nullptr;
+    }
+
+    const std::string key =
+        normalized_path.string();
+
+    /*
+     * Возвращаем texture из cache,
+     * если она уже была загружена.
+     */
+    const auto iterator =
+        textures_.find(key);
 
     if (iterator != textures_.end()) {
-        // Текстура уже существует — повторно в OpenGL её не загружаем.
         return iterator->second;
     }
 
-    /**
-     * Текстура ещё не загружена.
+    /*
+     * Texture2D может бросить исключение,
+     * если stb_image не смог декодировать файл.
      *
-     * Создаём Texture2D. Texture2D внутри себя загружает изображение
-     * и создаёт соответствующий OpenGL texture object.
+     * Такое состояние не должно ронять Editor.
      */
-    auto texture = std::make_shared<Texture2D>(normalized_path);
+    try {
+        std::shared_ptr<Texture2D> texture =
+            std::make_shared<Texture2D>(
+                normalized_path
+            );
 
-    // TextureManager становится одним из владельцев Texture2D.
-    textures_[key] = texture;
+        textures_.emplace(
+            key,
+            texture
+        );
 
-    return texture;
+        return texture;
+    } catch (const std::exception& exception) {
+        std::cerr
+            << "[TextureManager] Failed to load texture: "
+            << normalized_path
+            << '\n'
+            << "[TextureManager] Reason: "
+            << exception.what()
+            << '\n';
+
+        return nullptr;
+    }
 }
 
+/**
+ * @brief Очищает cache текстур.
+ *
+ * shared_ptr<Texture2D> удаляются после того,
+ * как на них больше не остаётся ссылок.
+ */
 void TextureManager::Clear() {
-    /**
-     * Убираем shared_ptr менеджера на все текстуры.
-     *
-     * Если других владельцев Texture2D нет, вызывается её деструктор
-     * и освобождается соответствующий OpenGL-ресурс.
-     *
-     * Поэтому Clear() необходимо вызывать, пока OpenGL-контекст
-     * ещё существует.
-     */
     textures_.clear();
 }
