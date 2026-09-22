@@ -453,6 +453,8 @@ private:
     bool pointer_look_active_ = false;
 
     bool grid_visible_ = true;
+    bool gizmo_visible_ = true;
+    bool lighting_enabled_ = true;
 
     /**
      * @brief Предыдущая позиция мыши

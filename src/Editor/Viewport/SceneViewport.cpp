@@ -744,7 +744,7 @@ void SceneViewport::paintGL() {
      * Grid и мировые оси не используют освещение
      * и не должны использовать текстуру предыдущего объекта.
      */
-    shader_->SetInt("uLightingEnabled", 0);
+    shader_->SetInt("uLightingEnabled",  0);
     shader_->SetInt("uHasDiffuseTexture", 0);
 
     if (grid_visible_ && grid_mesh_) {
@@ -808,7 +808,7 @@ void SceneViewport::paintGL() {
      * Всё, что находится в Scene, рисуется
      * с освещением.
      */
-    shader_->SetInt("uLightingEnabled", 1);
+    shader_->SetInt("uLightingEnabled", lighting_enabled_ ? 1 : 0);
 
     for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
         if (!object || !object->HasMesh()) {
@@ -990,12 +990,7 @@ void SceneViewport::paintGL() {
     /*
      * Move Gizmo.
      */
-    if (
-        selected_object_ &&
-        gizmo_x_mesh_ &&
-        gizmo_y_mesh_ &&
-        gizmo_z_mesh_
-    ) {
+    if (gizmo_visible_ && selected_object_ && gizmo_x_mesh_ && gizmo_y_mesh_ && gizmo_z_mesh_ ) {
         const Vec3 gizmo_position =
             selected_object_->GetTransform().position;
 
@@ -2048,6 +2043,16 @@ void SceneViewport::keyPressEvent(
                 ProjectionMode::
                     Orthographic
             );
+            break;
+
+        case Qt::Key_H:
+            gizmo_visible_ = !gizmo_visible_;
+            update();
+            break;
+
+        case Qt::Key_L:
+            lighting_enabled_ = !lighting_enabled_;
+            update();
             break;
 
         case Qt::Key_F:
