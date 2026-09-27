@@ -8,6 +8,7 @@
 #include "Engine/Assets/TextureManager.h"
 #include "Engine/Scene/BoundingBox.h"
 #include "Engine/Scene/SceneObject.h"
+#include "Engine/Scene/PointLight.h"
 
 #include <algorithm>
 #include <fstream>
@@ -31,6 +32,12 @@ struct SerializedPartData {
     SerializedMaterialData material;
 };
 
+/**
+ * @brief Временное представление SceneObject при чтении файла сцены.
+ *
+ * Данные PointLight хранятся отдельно от Material, потому что
+ * источник света является компонентом SceneObject, а не геометрией.
+ */
 struct SerializedObjectData {
     std::string name;
     SceneObject::Type type = SceneObject::Type::Empty;
@@ -38,6 +45,11 @@ struct SerializedObjectData {
     Transform transform{};
     SerializedMaterialData material;
     std::vector<SerializedPartData> parts;
+
+    bool has_point_light = false;
+    Vec3 light_color{1.0f, 1.0f, 1.0f};
+    float light_intensity = 1.0f;
+    bool light_enabled = true;
 };
 
 static const char* SceneObjectTypeToString(SceneObject::Type type) {
@@ -53,6 +65,9 @@ static const char* SceneObjectTypeToString(SceneObject::Type type) {
 
         case SceneObject::Type::ImportedModel:
             return "IMPORTED_MODEL";
+
+        case SceneObject::Type::PointLight:
+            return "POINT_LIGHT";
 
         case SceneObject::Type::Empty:
         default:
@@ -81,6 +96,11 @@ static bool SceneObjectTypeFromString(const std::string& value, SceneObject::Typ
         return true;
     }
 
+    if (value == "POINT_LIGHT") {
+        type = SceneObject::Type::PointLight;
+        return true;
+    }
+
     if (value == "EMPTY") {
         type = SceneObject::Type::Empty;
         return true;
@@ -97,6 +117,73 @@ static bool ReadExpectedToken(std::ifstream& file, const std::string& expected) 
     }
 
     return token == expected;
+}
+
+/**
+ * @brief Записывает компонент PointLight выбранного SceneObject.
+ *
+ * Position не сохраняется внутри PointLight, потому что положение
+ * источника является частью Transform самого SceneObject.
+ *
+ * @param file Открытый файл сцены.
+ * @param light Компонент источника света.
+ */
+static void WritePointLight(std::ofstream& file, const PointLight& light) {
+    const Vec3& color = light.GetColor();
+
+    file << "LIGHT\n";
+    file << "COLOR " << color.x << ' ' << color.y << ' ' << color.z << '\n';
+    file << "INTENSITY " << light.GetIntensity() << '\n';
+    file << "ENABLED " << (light.IsEnabled() ? 1 : 0) << '\n';
+    file << "END_LIGHT\n";
+}
+
+/**
+ * @brief Читает блок PointLight из файла сцены.
+ *
+ * @param file Открытый файл сцены.
+ * @param data Данные SceneObject, в которые записывается свет.
+ * @return true при корректном формате блока.
+ */
+static bool ReadPointLight(std::ifstream& file, SerializedObjectData& data) {
+    if (!ReadExpectedToken(file, "LIGHT")) {
+        return false;
+    }
+
+    if (!ReadExpectedToken(file, "COLOR")) {
+        return false;
+    }
+
+    if (!(file >> data.light_color.x >> data.light_color.y >> data.light_color.z)) {
+        return false;
+    }
+
+    if (!ReadExpectedToken(file, "INTENSITY")) {
+        return false;
+    }
+
+    if (!(file >> data.light_intensity)) {
+        return false;
+    }
+
+    if (!ReadExpectedToken(file, "ENABLED")) {
+        return false;
+    }
+
+    int enabled = 0;
+
+    if (!(file >> enabled)) {
+        return false;
+    }
+
+    if (!ReadExpectedToken(file, "END_LIGHT")) {
+        return false;
+    }
+
+    data.has_point_light = true;
+    data.light_enabled = enabled != 0;
+
+    return true;
 }
 
 static void WriteMaterial(std::ofstream& file, const Material& material) {
@@ -308,6 +395,18 @@ static std::shared_ptr<SceneObject> CreateObject(const SerializedObjectData& dat
             break;
         }
 
+        case SceneObject::Type::PointLight: {
+            object = std::make_shared<SceneObject>(data.name);
+
+            PointLight light;
+            light.SetColor(data.light_color);
+            light.SetIntensity(data.light_intensity);
+            light.SetEnabled(data.light_enabled);
+
+            object->SetPointLight(light);
+            break;
+        }
+
         case SceneObject::Type::Empty:
             object = std::make_shared<SceneObject>(data.name);
             break;
@@ -348,8 +447,21 @@ bool SceneSerializer::Save(const Scene& scene, const std::filesystem::path& path
         return false;
     }
 
-    file << "MINI_ENGINE_SCENE 3\n";
-    file << "OBJECT_COUNT " << scene.GetObjects().size() << '\n';
+    file << "MINI_ENGINE_SCENE 4\n";
+
+    /*
+     * В OBJECT_COUNT записываем только реальные SceneObject.
+     * nullptr внутри Scene не должен повреждать структуру файла.
+     */
+    std::size_t object_count = 0;
+
+    for (const std::shared_ptr<SceneObject>& object : scene.GetObjects()) {
+        if (object) {
+            ++object_count;
+        }
+    }
+
+    file << "OBJECT_COUNT " << object_count << '\n';
 
     for (const std::shared_ptr<SceneObject>& object : scene.GetObjects()) {
         if (!object) {
@@ -384,6 +496,23 @@ bool SceneSerializer::Save(const Scene& scene, const std::filesystem::path& path
              << transform.scale.x << ' '
              << transform.scale.y << ' '
              << transform.scale.z << '\n';
+
+        /*
+         * PointLight является компонентом SceneObject.
+         * Его положение уже сохранено в Transform выше.
+         *
+         * Для Type::PointLight компонент обязателен:
+         * иначе файл версии 4 оказался бы структурно неполным.
+         */
+        if (object->GetType() == SceneObject::Type::PointLight) {
+            const PointLight* light = object->GetPointLight();
+
+            if (!light) {
+                return false;
+            }
+
+            WritePointLight(file, *light);
+        }
 
         file << "MATERIAL\n";
 
@@ -434,7 +563,11 @@ bool SceneSerializer::Load(Scene& scene, const std::filesystem::path& path, Text
         return false;
     }
 
-    if (version != 3) {
+    /*
+     * Version 4 добавляет сериализацию PointLight.
+     * Version 3 продолжаем читать для старых сцен без света.
+     */
+    if (version != 3 && version != 4) {
         return false;
     }
 
@@ -474,6 +607,22 @@ bool SceneSerializer::Load(Scene& scene, const std::filesystem::path& path, Text
 
         if (!SceneObjectTypeFromString(type_name, object_data.type)) {
             return false;
+        }
+
+        /*
+         * Scene format v3 не умел сохранять PointLight:
+         * старый serializer записывал его как EMPTY.
+         *
+         * Если старый объект имеет стандартное имя Point Light,
+         * восстанавливаем компонент с параметрами по умолчанию.
+         * Color / Intensity / Enabled старого файла восстановить
+         * невозможно, потому что версия 3 их физически не сохраняла.
+         */
+        if (version == 3 &&
+            object_data.type == SceneObject::Type::Empty &&
+            object_data.name.rfind("Point Light", 0) == 0) {
+            object_data.type = SceneObject::Type::PointLight;
+            object_data.has_point_light = true;
         }
 
         if (!ReadExpectedToken(file, "SOURCE")) {
@@ -519,6 +668,16 @@ bool SceneSerializer::Load(Scene& scene, const std::filesystem::path& path, Text
             >> object_data.transform.scale.y
             >> object_data.transform.scale.z)) {
             return false;
+        }
+
+        /*
+         * В версии 4 PointLight хранится отдельным блоком.
+         * Для остальных типов сразу следует MATERIAL.
+         */
+        if (version >= 4 && object_data.type == SceneObject::Type::PointLight) {
+            if (!ReadPointLight(file, object_data)) {
+                return false;
+            }
         }
 
         if (!ReadExpectedToken(file, "MATERIAL")) {

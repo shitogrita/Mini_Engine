@@ -1044,13 +1044,31 @@ void SceneViewport::paintGL() {
      * Transform Gizmo.
      */
     if (gizmo_visible_ && selected_object_) {
-        const Vec3 gizmo_position = selected_object_->GetTransform().position;
+        const Transform& selected_transform = selected_object_->GetTransform();
+        const Vec3 gizmo_position = selected_transform.position;
 
-        const Matrix4 gizmo_model = AffineTransformation::Translation4(
+        /*
+         * Move и Rotate Gizmo пока отображаются в World Space.
+         *
+         * Scale Gizmo работает в Local Space:
+         * если SceneObject уже повёрнут, оси масштабирования
+         * должны повторять его Rotation, а не оставаться
+         * направленными по глобальным X / Y / Z.
+         *
+         * Текущий Scale объекта на размер самого Gizmo
+         * намеренно не влияет.
+         */
+        Matrix4 gizmo_model = AffineTransformation::Translation4(
             gizmo_position.x,
             gizmo_position.y,
             gizmo_position.z
         );
+
+        if (gizmo_mode_ == GizmoMode::Scale) {
+            Transform scale_gizmo_transform = selected_transform;
+            scale_gizmo_transform.scale = Vec3{1.0f, 1.0f, 1.0f};
+            gizmo_model = scale_gizmo_transform.GetModelMatrix();
+        }
 
         const Matrix4 gizmo_view_model = AffineTransformation::Multiply4(view, gizmo_model);
         const Matrix4 gizmo_mvp = AffineTransformation::Multiply4(projection, gizmo_view_model);
@@ -2453,20 +2471,68 @@ void SceneViewport::FrameSelectedObject() {
     update();
 }
 
+/**
+ * @brief Определяет выбранную ось Move или Scale Gizmo.
+ *
+ * Move Gizmo использует мировые оси X / Y / Z.
+ * Scale Gizmo использует локальные оси SceneObject:
+ * после Rotation визуальные оси и picking поворачиваются
+ * вместе с выбранным объектом.
+ *
+ * @param mouse_position Положение курсора в Scene View.
+ * @return Выбранная ось Gizmo или None.
+ */
 SceneViewport::GizmoAxis SceneViewport::PickMoveScaleGizmoAxis(const QPointF& mouse_position) const {
     if (!selected_object_) {
         return GizmoAxis::None;
     }
 
     const Ray ray = CreateMouseRay(mouse_position);
-    const Vec3 origin = selected_object_->GetTransform().position;
+    const Transform& transform = selected_object_->GetTransform();
+    const Vec3 origin = transform.position;
 
     constexpr float gizmo_length = 1.0f;
     constexpr float selection_radius = 0.12f;
 
-    const Vec3 x_end{origin.x + gizmo_length, origin.y, origin.z};
-    const Vec3 y_end{origin.x, origin.y + gizmo_length, origin.z};
-    const Vec3 z_end{origin.x, origin.y, origin.z + gizmo_length};
+    Vec3 x_direction{1.0f, 0.0f, 0.0f};
+    Vec3 y_direction{0.0f, 1.0f, 0.0f};
+    Vec3 z_direction{0.0f, 0.0f, 1.0f};
+
+    /*
+     * Для Scale поворачиваем базовые локальные оси
+     * матрицей Transform выбранного SceneObject.
+     *
+     * Scale принудительно ставим в 1, чтобы длина
+     * editor-осей не зависела от масштаба объекта.
+     */
+    if (gizmo_mode_ == GizmoMode::Scale) {
+        Transform scale_gizmo_transform = transform;
+        scale_gizmo_transform.scale = Vec3{1.0f, 1.0f, 1.0f};
+
+        const Matrix4 local_axis_matrix = scale_gizmo_transform.GetModelMatrix();
+
+        x_direction = Normalize(AffineTransformation::TransformDirection(local_axis_matrix, x_direction));
+        y_direction = Normalize(AffineTransformation::TransformDirection(local_axis_matrix, y_direction));
+        z_direction = Normalize(AffineTransformation::TransformDirection(local_axis_matrix, z_direction));
+    }
+
+    const Vec3 x_end{
+        origin.x + x_direction.x * gizmo_length,
+        origin.y + x_direction.y * gizmo_length,
+        origin.z + x_direction.z * gizmo_length
+    };
+
+    const Vec3 y_end{
+        origin.x + y_direction.x * gizmo_length,
+        origin.y + y_direction.y * gizmo_length,
+        origin.z + y_direction.z * gizmo_length
+    };
+
+    const Vec3 z_end{
+        origin.x + z_direction.x * gizmo_length,
+        origin.y + z_direction.y * gizmo_length,
+        origin.z + z_direction.z * gizmo_length
+    };
 
     const float x_distance = DistanceRayToSegment(ray, origin, x_end);
     const float y_distance = DistanceRayToSegment(ray, origin, y_end);
