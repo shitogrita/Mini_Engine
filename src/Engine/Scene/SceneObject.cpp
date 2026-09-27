@@ -2,10 +2,20 @@
 
 #include <utility>
 
-SceneObject::SceneObject(std::string name)
-    : name_(std::move(name)) {
+/**
+ * @brief Создаёт SceneObject без геометрии.
+ *
+ * @param name Имя объекта.
+ */
+SceneObject::SceneObject(std::string name) : name_(std::move(name)) {
 }
 
+/**
+ * @brief Создаёт SceneObject с основным Mesh.
+ *
+ * @param name Имя объекта.
+ * @param mesh Геометрия объекта.
+ */
 SceneObject::SceneObject(std::string name, std::shared_ptr<Mesh> mesh)
     : name_(std::move(name)),
       mesh_(std::move(mesh)) {
@@ -64,11 +74,13 @@ void SceneObject::AddRenderPart(std::string name, std::shared_ptr<Mesh> mesh, Ma
         return;
     }
 
-    render_parts_.push_back(SceneRenderPart{
-        std::move(name),
-        std::move(mesh),
-        std::move(material)
-    });
+    render_parts_.push_back(
+        SceneRenderPart{
+            std::move(name),
+            std::move(mesh),
+            std::move(material)
+        }
+    );
 }
 
 std::vector<SceneObject::SceneRenderPart>& SceneObject::GetRenderParts() {
@@ -97,4 +109,46 @@ void SceneObject::SetSourcePath(std::filesystem::path path) {
 
 const std::filesystem::path& SceneObject::GetSourcePath() const {
     return source_path_;
+}
+
+/**
+ * @brief Добавляет или заменяет PointLight.
+ *
+ * @param light Параметры источника света.
+ */
+void SceneObject::SetPointLight(const PointLight& light) {
+    point_light_ = light;
+}
+
+/**
+ * @brief Возвращает изменяемый PointLight.
+ *
+ * @return PointLight или nullptr.
+ */
+PointLight* SceneObject::GetPointLight() {
+    if (!point_light_.has_value()) {
+        return nullptr;
+    }
+
+    return &point_light_.value();
+}
+
+/**
+ * @brief Возвращает PointLight только для чтения.
+ *
+ * @return PointLight или nullptr.
+ */
+const PointLight* SceneObject::GetPointLight() const {
+    if (!point_light_.has_value()) {
+        return nullptr;
+    }
+
+    return &point_light_.value();
+}
+
+/**
+ * @brief Проверяет наличие PointLight.
+ */
+bool SceneObject::HasPointLight() const {
+    return point_light_.has_value();
 }

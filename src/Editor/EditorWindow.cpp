@@ -205,16 +205,6 @@ void EditorWindow::CreateDockWidgets() {
         );
 
     /*
-     * Inspector получает доступ к PointLight,
-     * принадлежащему SceneViewport.
-     *
-     * Ownership не передаётся.
-     */
-    inspector_panel_->SetPointLight(
-        &scene_viewport_->GetPointLight()
-    );
-
-    /*
      * Любое изменение источника света
      * должно сразу перерисовывать Scene View.
      */

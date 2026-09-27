@@ -771,32 +771,77 @@ void SceneViewport::paintGL() {
     shader_->SetFloat("uDashFill", 1.0f);
 
     /*
-     * PointLight теперь перемещается как обычный SceneObject.
+     * Основной shader пока поддерживает один Point Light.
      *
-     * Поэтому реальная позиция источника каждый кадр
-     * берётся из Transform editor-объекта.
+     * Scene уже допускает несколько источников света,
+     * поэтому для освещения геометрии выбираем первый
+     * включённый PointLight.
+     *
+     * Editor-маркеры при этом рисуются для всех источников.
      */
-    if (point_light_object_) {
-        point_light_.SetPosition(
-            point_light_object_->GetTransform().position
+    const SceneObject* active_light_object = nullptr;
+    const PointLight* active_light = nullptr;
+
+    for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
+        if (!object || !object->HasPointLight()) {
+            continue;
+        }
+
+        const PointLight* light = object->GetPointLight();
+
+        if (!light || !light->IsEnabled()) {
+            continue;
+        }
+
+        active_light_object = object.get();
+        active_light = light;
+        break;
+    }
+
+    /*
+     * Позиция PointLight определяется Transform SceneObject.
+     * Сам компонент PointLight хранит параметры освещения.
+     */
+    if (active_light_object && active_light) {
+        shader_->SetVec3(
+            "uLightPosition",
+            active_light_object->GetTransform().position
+        );
+
+        shader_->SetVec3(
+            "uLightColor",
+            active_light->GetColor()
+        );
+
+        shader_->SetFloat(
+            "uLightIntensity",
+            active_light->GetIntensity()
+        );
+    } else {
+        /*
+         * Если в Scene нет включённого PointLight,
+         * освещение отключается нулевой интенсивностью.
+         */
+        shader_->SetVec3(
+            "uLightPosition",
+            Vec3{0.0f, 0.0f, 0.0f}
+        );
+
+        shader_->SetVec3(
+            "uLightColor",
+            Vec3{1.0f, 1.0f, 1.0f}
+        );
+
+        shader_->SetFloat(
+            "uLightIntensity",
+            0.0f
         );
     }
 
-    shader_->SetVec3("uLightPosition", point_light_.GetPosition());
-    shader_->SetVec3("uLightColor", point_light_.GetColor());
-    /*
-     * Выключенный PointLight передаёт нулевую интенсивность.
-     *
-     * Это позволяет не добавлять отдельный uniform
-     * только ради enabled-состояния.
-     */
-    shader_->SetFloat(
-        "uLightIntensity",
-        point_light_.IsEnabled()
-            ? point_light_.GetIntensity()
-            : 0.0f
+    shader_->SetVec3(
+        "uViewPosition",
+        camera_.GetPosition()
     );
-    shader_->SetVec3("uViewPosition", camera_.GetPosition());
 
     /*
      * Grid и мировые оси не используют освещение
@@ -928,24 +973,63 @@ void SceneViewport::paintGL() {
     shader_->SetInt("uLightingEnabled", 0);
     shader_->SetInt("uHasDiffuseTexture", 0);
 
-    /*
-     * Выключенный источник не отображает
-     * editor-маркер в Scene View.
+    /**
+     * @brief Рисует editor-маркеры всех PointLight в Scene.
+     *
+     * Маркер является только визуальным представлением
+     * источника света в Editor и не является Mesh
+     * самого SceneObject.
+     *
+     * Даже выключенный PointLight остаётся видимым:
+     * Enabled управляет освещением, а не существованием
+     * объекта в Editor.
      */
-    if (point_light_.IsEnabled() && light_shader_ && light_mesh_) {
-        const Vec3& light_position = point_light_.GetPosition();
-
-        const Matrix4 light_model = AffineTransformation::Translation4(light_position.x, light_position.y, light_position.z);
-
-        const Matrix4 light_view_model = AffineTransformation::Multiply4(view, light_model);
-
-        const Matrix4 light_mvp = AffineTransformation::Multiply4(projection, light_view_model);
-
+    if (light_shader_ && light_mesh_) {
         light_shader_->Use();
 
-        light_shader_->SetVec3("uLightColor", point_light_.GetColor());
+        for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
+            if (!object || !object->HasPointLight()) {
+                continue;
+            }
 
-        renderer_.Draw(*light_mesh_, *light_shader_, light_mvp);
+            const PointLight* light = object->GetPointLight();
+
+            if (!light) {
+                continue;
+            }
+
+            const Vec3& light_position = object->GetTransform().position;
+
+            const Matrix4 light_model =
+                AffineTransformation::Translation4(
+                    light_position.x,
+                    light_position.y,
+                    light_position.z
+                );
+
+            const Matrix4 light_view_model =
+                AffineTransformation::Multiply4(
+                    view,
+                    light_model
+                );
+
+            const Matrix4 light_mvp =
+                AffineTransformation::Multiply4(
+                    projection,
+                    light_view_model
+                );
+
+            light_shader_->SetVec3(
+                "uLightColor",
+                light->GetColor()
+            );
+
+            renderer_.Draw(
+                *light_mesh_,
+                *light_shader_,
+                light_mvp
+            );
+        }
     }
 
     /*
@@ -1046,20 +1130,6 @@ const Scene& SceneViewport::GetScene() const {
     return scene_;
 }
 
-/**
- * @brief Возвращает редактируемый PointLight viewport.
- */
-PointLight& SceneViewport::GetPointLight() {
-    return point_light_;
-}
-
-/**
- * @brief Возвращает PointLight только для чтения.
- */
-const PointLight& SceneViewport::GetPointLight() const {
-    return point_light_;
-}
-
 void SceneViewport::SetSelectedObject(std::shared_ptr<SceneObject> object) {
     /*
      * Этот метод может быть вызван
@@ -1085,18 +1155,15 @@ std::shared_ptr<SceneObject> SceneViewport::GetSelectedObject() const {
 }
 
 /**
- * @brief Удаляет выбранный объект Scene.
+ * @brief Удаляет выбранный SceneObject.
  *
- * Point Light удаляется точно так же,
- * как любой другой SceneObject.
+ * PointLight не требует специальной обработки,
+ * потому что его компонент принадлежит самому SceneObject.
  */
 void SceneViewport::DeleteSelectedObject() {
     if (!selected_object_) {
         return;
     }
-
-    const bool removing_point_light =
-        selected_object_ == point_light_object_;
 
     const bool removed =
         scene_.RemoveObject(
@@ -1105,11 +1172,6 @@ void SceneViewport::DeleteSelectedObject() {
 
     if (!removed) {
         return;
-    }
-
-    if (removing_point_light) {
-        point_light_object_.reset();
-        point_light_.SetEnabled(false);
     }
 
     selected_object_.reset();
@@ -2566,15 +2628,16 @@ void SceneViewport::CreatePrimitive(const QString& name, ImportedMeshData mesh_d
     update();
 }
 
+/**
+ * @brief Полностью очищает Scene.
+ *
+ * PointLight является обычным SceneObject с компонентом
+ * PointLight, поэтому scene_.Clear() удаляет источники
+ * света вместе с остальными объектами.
+ */
 void SceneViewport::ClearScene() {
     ResetInputState();
     scene_.Clear();
-    /*
-     * Point Light является обычным объектом Scene,
-     * поэтому Clear Scene удаляет и его.
-     */
-    point_light_object_.reset();
-    point_light_.SetEnabled(false);
 
     selected_object_.reset();
     pending_model_path_.clear();
@@ -2582,6 +2645,13 @@ void SceneViewport::ClearScene() {
 
     UpdateProjectionTitle();
     UpdateCoordinatesLabel();
+    NotifySelectionChanged();
+
+    if (content_label_) {
+        content_label_->show();
+        content_label_->setText("Scene is empty");
+    }
+
     update();
 }
 
@@ -2651,70 +2721,77 @@ bool SceneViewport::LoadScene(const QString& file_path) {
 }
 
 /**
- * @brief Создаёт Point Light и выбирает его.
- *
- * Метод предназначен для команды Create -> Light.
+ * @brief Создаёт Point Light и сразу выбирает его.
  */
 void SceneViewport::CreatePointLight() {
     CreatePointLightObject(true);
 }
 
 /**
- * @brief Создаёт SceneObject для текущего PointLight.
+ * @brief Создаёт полноценный SceneObject источника света.
  *
- * Само освещение пока рассчитывается через point_light_,
- * а SceneObject отвечает за:
+ * Каждый вызов создаёт независимый PointLight.
  *
- * - отображение в Hierarchy;
- * - selection;
- * - Transform;
- * - Move Gizmo.
- *
- * @param select_object Нужно ли сразу выбрать источник.
+ * @param select_object Нужно ли сразу выбрать новый объект.
  */
 void SceneViewport::CreatePointLightObject(bool select_object) {
-    /*
-     * Текущий renderer пока поддерживает один PointLight.
-     * Поэтому второй источник сейчас не создаём.
-     */
-    if (point_light_object_) {
-        if (select_object) {
-            selected_object_ = point_light_object_;
-            NotifySelectionChanged();
-            update();
-        }
+    std::size_t light_count = 0;
 
-        return;
+    for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
+        if (object && object->HasPointLight()) {
+            ++light_count;
+        }
     }
 
-    auto object = std::make_shared<SceneObject>("Point Light");
+    std::string name = "Point Light";
+
+    if (light_count > 0) {
+        name += " (" + std::to_string(light_count) + ")";
+    }
+
+    auto object = std::make_shared<SceneObject>(name);
 
     object->SetType(
         SceneObject::Type::PointLight
     );
 
     /*
-     * Начальную позицию переносим из текущего PointLight
-     * в обычный Transform SceneObject.
+     * PointLight хранит только параметры освещения.
+     * Положение источника берётся из Transform SceneObject.
+     */
+    PointLight light;
+
+    object->SetPointLight(
+        light
+    );
+
+    /*
+     * Первый источник появляется в привычном месте.
+     *
+     * Последующие немного смещаются,
+     * чтобы не находиться строго друг внутри друга.
      */
     object->GetTransform().position =
-        point_light_.GetPosition();
+        Vec3{
+            2.0f + static_cast<float>(light_count) * 1.5f,
+            3.0f,
+            2.0f
+        };
 
-    object->GetTransform().rotation =
-        Vec3{0.0f, 0.0f, 0.0f};
+    scene_.AddObject(
+        object
+    );
 
-    object->GetTransform().scale =
-        Vec3{1.0f, 1.0f, 1.0f};
-
-    scene_.AddObject(object);
-
-    point_light_object_ = object;
-    point_light_.SetEnabled(true);
+    content_label_->hide();
 
     if (select_object) {
         selected_object_ = object;
+
         NotifySelectionChanged();
+        UpdateCoordinatesLabel();
     }
+
+    UpdateProjectionTitle();
 
     update();
 }

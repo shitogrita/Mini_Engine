@@ -12,6 +12,7 @@
 #include "Engine/Scene/Scene.h"
 #include "Engine/Scene/SceneObject.h"
 
+#include <optional>
 #include <QElapsedTimer>
 #include <QOpenGLWidget>
 #include <QPointF>
@@ -94,23 +95,6 @@ public:
 
     void SetMaterialTexture(Material& material, const QString& file_path);
     bool LoadScene(const QString& file_path);
-
-    /**
-     * @brief Возвращает редактируемый PointLight сцены.
-     *
-     * Метод используется Editor UI для изменения
-     * позиции, цвета и интенсивности источника.
-     *
-     * @return Ссылка на PointLight.
-     */
-    PointLight& GetPointLight();
-
-    /**
-     * @brief Возвращает PointLight только для чтения.
-     *
-     * @return Константная ссылка на PointLight.
-     */
-    const PointLight& GetPointLight() const;
 
     /**
      * @brief Создаёт Point Light как отдельный объект сцены.
@@ -244,7 +228,6 @@ private:
     float orthographic_half_height_ = 5.0f;
     bool gl_initialized_ = false;
 
-    PointLight point_light_;
 
     /**
      * @brief Создаёт editor-объект Point Light.
@@ -254,11 +237,4 @@ private:
      */
     void CreatePointLightObject(bool select_object);
 
-    /**
-     * @brief SceneObject, представляющий источник света.
-     *
-     * Transform этого объекта определяет положение
-     * реального PointLight в сцене.
-     */
-    std::shared_ptr<SceneObject> point_light_object_;
 };

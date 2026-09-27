@@ -82,16 +82,6 @@ public:
     void SetTextureChangedCallback(std::function<void(Material&, const QString&)> callback);
 
     /**
-     * @brief Подключает данные PointLight к Inspector.
-     *
-     * Inspector не владеет PointLight.
-     * Источник света принадлежит SceneViewport.
-     *
-     * @param point_light Указатель на PointLight.
-     */
-    void SetPointLight(PointLight* point_light);
-
-    /**
      * @brief Устанавливает callback изменения PointLight.
      *
      * @param callback Функция перерисовки viewport.
@@ -176,11 +166,6 @@ private:
      * @brief Выбранный SceneObject.
      */
     std::shared_ptr<SceneObject> selected_object_;
-
-    /**
-     * @brief Невладеющий указатель на данные текущего PointLight.
-     */
-    PointLight* point_light_ = nullptr;
 
     /**
      * @brief Заголовок Inspector.

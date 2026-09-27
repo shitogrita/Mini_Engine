@@ -485,23 +485,23 @@ void InspectorPanel::CreateLayout() {
         }
     });
 
-    /*
-     * Изменение интенсивности Point Light.
-     *
-     * Callback работает только если выбран
-     * непосредственно SceneObject источника света.
+    /**
+     * @brief Изменяет интенсивность PointLight
+     * выбранного SceneObject.
      */
     connect(light_intensity_, &QDoubleSpinBox::valueChanged, this, [this](double value) {
-        if (
-            updating_fields_ ||
-            !selected_object_ ||
-            selected_object_->GetType() != SceneObject::Type::PointLight ||
-            point_light_ == nullptr
-        ) {
+        if (updating_fields_ || !selected_object_) {
             return;
         }
 
-        point_light_->SetIntensity(
+        PointLight* light =
+            selected_object_->GetPointLight();
+
+        if (!light) {
+            return;
+        }
+
+        light->SetIntensity(
             static_cast<float>(value)
         );
 
@@ -510,39 +510,49 @@ void InspectorPanel::CreateLayout() {
         }
     });
 
-    /*
-     * Enabled Point Light.
+    /**
+     * @brief Включает или выключает PointLight
+     * выбранного SceneObject.
      */
     connect(light_enabled_, &QCheckBox::toggled, this, [this](bool enabled) {
-        if (
-            updating_fields_ ||
-            !selected_object_ ||
-            selected_object_->GetType() != SceneObject::Type::PointLight ||
-            point_light_ == nullptr
-        ) {
+        if (updating_fields_ || !selected_object_) {
             return;
         }
 
-        point_light_->SetEnabled(enabled);
+        PointLight* light =
+            selected_object_->GetPointLight();
+
+        if (!light) {
+            return;
+        }
+
+        light->SetEnabled(
+            enabled
+        );
 
         if (light_changed_callback_) {
             light_changed_callback_();
         }
     });
 
-    /*
-     * Изменение цвета Point Light.
+    /**
+     * @brief Изменяет цвет PointLight
+     * выбранного SceneObject.
      */
     connect(light_color_button_, &QPushButton::clicked, this, [this]() {
-        if (
-            !selected_object_ ||
-            selected_object_->GetType() != SceneObject::Type::PointLight ||
-            point_light_ == nullptr
-        ) {
+        if (!selected_object_) {
             return;
         }
 
-        const Vec3& color = point_light_->GetColor();
+        PointLight* light =
+            selected_object_->GetPointLight();
+
+        if (!light) {
+            return;
+        }
+
+        const Vec3& color =
+            light->GetColor();
 
         const QColor initial_color = QColor::fromRgbF(
             std::clamp(color.x, 0.0f, 1.0f),
@@ -560,7 +570,7 @@ void InspectorPanel::CreateLayout() {
             return;
         }
 
-        point_light_->SetColor(
+        light->SetColor(
             Vec3{
                 static_cast<float>(selected_color.redF()),
                 static_cast<float>(selected_color.greenF()),
@@ -667,9 +677,7 @@ void InspectorPanel::SetSelectedObject(std::shared_ptr<SceneObject> object) {
     UpdateTransformFields();
 
     const bool is_point_light =
-        selected_object_->GetType() ==
-        SceneObject::Type::PointLight;
-
+    selected_object_->HasPointLight();
     /*
      * Point Light:
      *
@@ -947,25 +955,6 @@ void InspectorPanel::SetTextureChangedCallback(std::function<void(Material&, con
 }
 
 /**
- * @brief Подключает PointLight к Inspector.
- *
- * Inspector хранит только невладеющий указатель.
- *
- * @param point_light Источник света SceneViewport.
- */
-void InspectorPanel::SetPointLight(PointLight* point_light) {
-    point_light_ = point_light;
-
-    if (
-        selected_object_ &&
-        selected_object_->GetType() ==
-        SceneObject::Type::PointLight
-    ) {
-        UpdateLightFields();
-    }
-}
-
-/**
  * @brief Устанавливает callback изменения света.
  *
  * @param callback Функция обновления viewport.
@@ -976,28 +965,28 @@ void InspectorPanel::SetLightChangedCallback(std::function<void()> callback) {
 }
 
 /**
- * @brief Обновляет параметры PointLight.
- *
- * Position здесь отсутствует:
- * он находится в обычном Transform SceneObject.
+ * @brief Обновляет параметры PointLight выбранного SceneObject.
  */
 void InspectorPanel::UpdateLightFields() {
-    if (
-        !selected_object_ ||
-        selected_object_->GetType() != SceneObject::Type::PointLight ||
-        point_light_ == nullptr
-    ) {
+    if (!selected_object_) {
+        return;
+    }
+
+    PointLight* light =
+        selected_object_->GetPointLight();
+
+    if (!light) {
         return;
     }
 
     updating_fields_ = true;
 
     light_intensity_->setValue(
-        point_light_->GetIntensity()
+        light->GetIntensity()
     );
 
     light_enabled_->setChecked(
-        point_light_->IsEnabled()
+        light->IsEnabled()
     );
 
     UpdateLightColorButton();
@@ -1006,18 +995,22 @@ void InspectorPanel::UpdateLightFields() {
 }
 
 /**
- * @brief Обновляет отображаемый цвет PointLight.
+ * @brief Обновляет цвет кнопки PointLight.
  */
 void InspectorPanel::UpdateLightColorButton() {
-    if (
-        point_light_ == nullptr ||
-        light_color_button_ == nullptr
-    ) {
+    if (!selected_object_ || !light_color_button_) {
+        return;
+    }
+
+    const PointLight* light =
+        selected_object_->GetPointLight();
+
+    if (!light) {
         return;
     }
 
     const Vec3& color =
-        point_light_->GetColor();
+        light->GetColor();
 
     const QColor q_color = QColor::fromRgbF(
         std::clamp(color.x, 0.0f, 1.0f),
