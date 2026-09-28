@@ -5,6 +5,7 @@
 #include "Engine/Math/Ray.h"
 #include "Engine/Math/matrix_types.h"
 #include "Engine/Renderer/Mesh.h"
+#include "Engine/Renderer/PointShadowMap.h"
 #include "Engine/Renderer/Renderer.h"
 #include "Engine/Renderer/Shader.h"
 #include "Engine/Scene/Camera.h"
@@ -40,7 +41,11 @@ class QWheelEvent;
  * - отображение editor grid и координатных осей;
  * - отображение выбранного SceneObject;
  * - Frame Selected;
- * - Move / Rotate / Scale Gizmo.
+ * - Move / Rotate / Scale Gizmo;
+ * - дополнительный Point Shadow Pass.
+ *
+ * Обычное multi-light освещение и Shadow Pass разделены:
+ * Depth Cubemap только дополняет текущий рендеринг и не заменяет его.
  */
 class SceneViewport final : public QOpenGLWidget {
 public:
@@ -57,7 +62,6 @@ public:
      * обычная геометрия, импортированная модель
      * или источник света.
      */
-
     enum class Type {
         Empty,
         Cube,
@@ -162,6 +166,17 @@ private:
     GizmoAxis PickRotateGizmoAxis(const QPointF& mouse_position) const;
     bool TryBeginGizmoDrag(const QPointF& mouse_position);
 
+    /**
+     * @brief Строит Depth Cubemap для первого активного Point Light,
+     * у которого включён Cast Shadows.
+     *
+     * Метод не заменяет обычный multi-light pass.
+     *
+     * @return Индекс shadow-casting источника в массиве uPointLights
+     * или -1, если Shadow Pass не выполнялся.
+     */
+    int RenderPointShadowMap();
+
     QLabel* title_label_ = nullptr;
     QLabel* content_label_ = nullptr;
     QLabel* coordinates_label_ = nullptr;
@@ -192,6 +207,22 @@ private:
 
     std::unique_ptr<Mesh> light_mesh_;
     std::unique_ptr<Shader> light_shader_;
+
+    /**
+     * @brief Shader depth-only прохода Point Shadow Mapping.
+     *
+     * Создаётся только если point_shadow.vert и point_shadow.frag
+     * присутствуют в каталоге shaders.
+     */
+    std::unique_ptr<Shader> shadow_shader_;
+
+    /**
+     * @brief Depth Cubemap и framebuffer для Point Light shadows.
+     *
+     * Хранится через unique_ptr, чтобы OpenGL-ресурсы можно было
+     * уничтожить явно, пока QOpenGLContext ещё активен.
+     */
+    std::unique_ptr<PointShadowMap> point_shadow_map_;
 
     QString pending_model_path_;
     TextureManager texture_manager_;
@@ -228,7 +259,6 @@ private:
     float orthographic_half_height_ = 5.0f;
     bool gl_initialized_ = false;
 
-
     /**
      * @brief Создаёт editor-объект Point Light.
      *
@@ -236,5 +266,4 @@ private:
      * сразу становится выбранным.
      */
     void CreatePointLightObject(bool select_object);
-
 };

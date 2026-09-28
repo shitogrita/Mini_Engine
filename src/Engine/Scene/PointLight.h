@@ -11,13 +11,16 @@
  * - позицию источника в World Space;
  * - цвет света;
  * - интенсивность;
- * - состояние включения.
+ * - состояние включения;
+ * - состояние построения теней.
  *
- * В текущей версии позиция временно остаётся
- * внутри PointLight.
+ * В текущей архитектуре фактическое положение
+ * PointLight в SceneViewport берётся из Transform
+ * соответствующего SceneObject.
  *
- * После переноса PointLight в полноценный SceneObject
- * позиция будет храниться в Transform объекта.
+ * position_ пока сохраняется для совместимости
+ * с существующим кодом и будет удалён отдельно
+ * после полной проверки всех зависимостей.
  */
 class PointLight {
 public:
@@ -38,7 +41,7 @@ public:
     /**
      * @brief Возвращает цвет источника света.
      *
-     * @return RGB-цвет в диапазоне [0, 1].
+     * @return RGB-цвет источника.
      */
     const Vec3& GetColor() const;
 
@@ -80,14 +83,31 @@ public:
      */
     void SetEnabled(bool enabled);
 
+    /**
+     * @brief Проверяет, должен ли PointLight отбрасывать тени.
+     *
+     * Само значение не создаёт shadow map автоматически.
+     * Оно только сообщает Renderer, нужно ли строить
+     * Depth Cubemap для данного источника.
+     *
+     * @return true, если источник должен отбрасывать тени.
+     */
+    bool CastsShadows() const;
+
+    /**
+     * @brief Включает или выключает тени PointLight.
+     *
+     * @param cast_shadows Новое состояние shadow rendering.
+     */
+    void SetCastShadows(bool cast_shadows);
+
 private:
     /**
      * @brief Позиция источника света в World Space.
      *
-     * Это поле временное.
-     *
-     * После превращения PointLight в SceneObject
-     * позиция будет перенесена в Transform.
+     * Поле пока сохраняется для совместимости.
+     * Фактическая позиция SceneObject уже хранится
+     * в Transform.
      */
     Vec3 position_{2.0f, 3.0f, 2.0f};
 
@@ -105,4 +125,11 @@ private:
      * @brief Участвует ли PointLight в освещении.
      */
     bool enabled_ = true;
+
+    /**
+     * @brief Нужно ли источнику строить тени.
+     *
+     * По умолчанию включено.
+     */
+    bool cast_shadows_ = true;
 };

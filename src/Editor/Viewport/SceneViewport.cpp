@@ -23,6 +23,7 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 /**
@@ -55,12 +56,37 @@ static constexpr float kPi = 3.14159265358979323846f;
 static constexpr float kVectorEpsilon = 0.000001f;
 
 /**
+ * @brief Максимальное число Point Light, одновременно передаваемых в basic.frag.
+ *
+ * Ограничение фиксировано на стороне GLSL 3.30 и позволяет не использовать
+ * более сложные SSBO/UBO-механизмы до этапа дальнейшего развития Renderer.
+ */
+static constexpr int kMaxPointLights = 8;
+
+/**
+ * @brief Разрешение одной стороны Point Shadow Cubemap.
+ */
+static constexpr int kPointShadowResolution = 1024;
+
+/**
+ * @brief Ближняя плоскость shadow projection.
+ */
+static constexpr float kPointShadowNearPlane = 0.1f;
+
+/**
+ * @brief Дальняя плоскость shadow projection.
+ *
+ * Значение также используется Fragment Shader для восстановления
+ * реального расстояния, записанного в Depth Cubemap.
+ */
+static constexpr float kPointShadowFarPlane = 50.0f;
+
+/**
  * @brief Возвращает OpenGL-функцию
  * из текущего Qt OpenGL Context.
  *
- * Используется для инициализации GLAD,
- * не подключая GLAD непосредственно
- * внутрь SceneViewport.
+ * Используется для инициализации GLAD
+ * через текущий QOpenGLContext.
  */
 static void* GetQtOpenGLProcAddress(const char* name) {
     QOpenGLContext* current_context =
@@ -102,6 +128,66 @@ static Vec3 Normalize(const Vec3& vector) {
         vector.y / length,
         vector.z / length
     };
+}
+
+/**
+ * @brief Возвращает скалярное произведение двух Vec3.
+ */
+static float Dot(const Vec3& first, const Vec3& second) {
+    return first.x * second.x + first.y * second.y + first.z * second.z;
+}
+
+/**
+ * @brief Возвращает векторное произведение двух Vec3.
+ */
+static Vec3 Cross(const Vec3& first, const Vec3& second) {
+    return Vec3{
+        first.y * second.z - first.z * second.y,
+        first.z * second.x - first.x * second.z,
+        first.x * second.y - first.y * second.x
+    };
+}
+
+/**
+ * @brief Создаёт View Matrix для одной стороны Point Shadow Cubemap.
+ *
+ * Матрица использует ту же row-major структуру Matrix4,
+ * что и остальные матрицы Mini Engine. Перед отправкой в OpenGL
+ * Shader::SetMat4() преобразует её в column-major representation.
+ *
+ * @param eye Позиция Point Light.
+ * @param direction Направление взгляда стороны Cubemap.
+ * @param up Направление "вверх" для стороны Cubemap.
+ * @return View Matrix источника света.
+ */
+static Matrix4 CreateLookAtMatrix(const Vec3& eye, const Vec3& direction, const Vec3& up) {
+    const Vec3 forward = Normalize(direction);
+    const Vec3 right = Normalize(Cross(forward, up));
+    const Vec3 corrected_up = Cross(right, forward);
+
+    Matrix4 view{};
+
+    view[0][0] = right.x;
+    view[0][1] = right.y;
+    view[0][2] = right.z;
+    view[0][3] = -Dot(right, eye);
+
+    view[1][0] = corrected_up.x;
+    view[1][1] = corrected_up.y;
+    view[1][2] = corrected_up.z;
+    view[1][3] = -Dot(corrected_up, eye);
+
+    view[2][0] = -forward.x;
+    view[2][1] = -forward.y;
+    view[2][2] = -forward.z;
+    view[2][3] = Dot(forward, eye);
+
+    view[3][0] = 0.0f;
+    view[3][1] = 0.0f;
+    view[3][2] = 0.0f;
+    view[3][3] = 1.0f;
+
+    return view;
 }
 
 /**
@@ -327,6 +413,14 @@ SceneViewport::~SceneViewport() {
         rotate_gizmo_y_mesh_.reset();
         rotate_gizmo_z_mesh_.reset();
 
+        /*
+         * Point Shadow Map содержит OpenGL framebuffer
+         * и Depth Cubemap, поэтому освобождаем его,
+         * пока Context ещё активен.
+         */
+        point_shadow_map_.reset();
+        shadow_shader_.reset();
+
         shader_.reset();
         light_mesh_.reset();
         light_shader_.reset();
@@ -417,6 +511,48 @@ void SceneViewport::initializeGL() {
     light_shader_ = std::make_unique<Shader>(std::filesystem::path(MINI_ENGINE_SHADER_DIR) / "lamp.vert", std::filesystem::path(MINI_ENGINE_SHADER_DIR) / "lamp.frag");
 
     light_mesh_ = std::make_unique<Mesh>(PrimitiveGenerator::CreateSphere(0.08f, 16, 8));
+
+    /**
+     * @brief Создание ресурсов Point Shadow Mapping.
+     *
+     * Shadow shaders являются обязательной частью текущего Renderer.
+     * Если один из файлов отсутствует, ошибка должна быть видна сразу,
+     * а не приводить к тихому отключению теней.
+     */
+    const std::filesystem::path shadow_vertex_path =
+        shader_directory / "pointShadow.vert";
+
+    const std::filesystem::path shadow_fragment_path =
+        shader_directory / "pointShadow.frag";
+
+    if (!std::filesystem::exists(shadow_vertex_path)) {
+        throw std::runtime_error(
+            "Point shadow vertex shader not found: " +
+            shadow_vertex_path.string()
+        );
+    }
+
+    if (!std::filesystem::exists(shadow_fragment_path)) {
+        throw std::runtime_error(
+            "Point shadow fragment shader not found: " +
+            shadow_fragment_path.string()
+        );
+    }
+
+    shadow_shader_ =
+        std::make_unique<Shader>(
+            shadow_vertex_path,
+            shadow_fragment_path
+        );
+
+    point_shadow_map_ =
+        std::make_unique<PointShadowMap>();
+
+    if (!point_shadow_map_->Initialize(kPointShadowResolution)) {
+        throw std::runtime_error(
+            "Failed to initialize Point Shadow Map"
+        );
+    }
 
     /*
      * Editor helpers:
@@ -719,6 +855,177 @@ ImportedMeshData SceneViewport::CreateCircleMeshData(GizmoAxis axis) const {
     return data;
 }
 
+/**
+ * @brief Строит Depth Cubemap для первого активного Point Light с Cast Shadows.
+ *
+ * Обычное multi-light освещение при этом не изменяется:
+ * Shadow Pass только создаёт дополнительную depth texture.
+ *
+ * В текущем этапе один PointShadowMap используется для одного
+ * shadow-casting источника за кадр. Остальные Point Light
+ * продолжают участвовать в обычном освещении.
+ *
+ * @return Индекс shadow-casting источника в uPointLights
+ * или -1, если Shadow Pass в этом кадре не выполнялся.
+ */
+int SceneViewport::RenderPointShadowMap() {
+    if (!lighting_enabled_ || !shadow_shader_ || !point_shadow_map_ || !point_shadow_map_->IsInitialized()) {
+        return -1;
+    }
+
+    const SceneObject* shadow_light_object = nullptr;
+    int shadow_light_index = -1;
+    int active_light_index = 0;
+
+    /*
+     * Порядок должен полностью совпадать с порядком,
+     * которым paintGL() заполняет uPointLights.
+     */
+    for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
+        if (!object || !object->HasPointLight()) {
+            continue;
+        }
+
+        const PointLight* light = object->GetPointLight();
+
+        if (!light || !light->IsEnabled()) {
+            continue;
+        }
+
+        if (active_light_index >= kMaxPointLights) {
+            break;
+        }
+
+        if (light->CastsShadows()) {
+            shadow_light_object = object.get();
+            shadow_light_index = active_light_index;
+            break;
+        }
+
+        ++active_light_index;
+    }
+
+    if (shadow_light_object == nullptr) {
+        return -1;
+    }
+
+    const Vec3 light_position = shadow_light_object->GetTransform().position;
+
+    /*
+     * Point Light имеет угол обзора 90 градусов для каждой
+     * из шести граней Cubemap.
+     */
+    const Matrix4 shadow_projection = Projection::Perspective(
+        90.0f,
+        1.0f,
+        kPointShadowNearPlane,
+        kPointShadowFarPlane
+    );
+
+    const Vec3 directions[6] = {
+        Vec3{ 1.0f,  0.0f,  0.0f},
+        Vec3{-1.0f,  0.0f,  0.0f},
+        Vec3{ 0.0f,  1.0f,  0.0f},
+        Vec3{ 0.0f, -1.0f,  0.0f},
+        Vec3{ 0.0f,  0.0f,  1.0f},
+        Vec3{ 0.0f,  0.0f, -1.0f}
+    };
+
+    /*
+     * Up-векторы выбраны специально для Cubemap,
+     * чтобы ориентация соседних граней совпадала.
+     */
+    const Vec3 up_vectors[6] = {
+        Vec3{0.0f, -1.0f,  0.0f},
+        Vec3{0.0f, -1.0f,  0.0f},
+        Vec3{0.0f,  0.0f,  1.0f},
+        Vec3{0.0f,  0.0f, -1.0f},
+        Vec3{0.0f, -1.0f,  0.0f},
+        Vec3{0.0f, -1.0f,  0.0f}
+    };
+
+    shadow_shader_->Use();
+    shadow_shader_->SetVec3("uLightPosition", light_position);
+    shadow_shader_->SetFloat("uFarPlane", kPointShadowFarPlane);
+
+    /*
+     * Рендерим Scene шесть раз — по одному разу
+     * для каждой стороны Depth Cubemap.
+     */
+    for (int face_index = 0; face_index < 6; ++face_index) {
+        point_shadow_map_->BeginFace(face_index);
+
+        const Matrix4 shadow_view = CreateLookAtMatrix(
+            light_position,
+            directions[face_index],
+            up_vectors[face_index]
+        );
+
+        const Matrix4 light_view_projection = AffineTransformation::Multiply4(
+            shadow_projection,
+            shadow_view
+        );
+
+        shadow_shader_->SetMat4("uLightVP", light_view_projection);
+
+        for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
+            if (!object || !object->HasMesh()) {
+                continue;
+            }
+
+            const Matrix4 model = object->GetTransform().GetModelMatrix();
+            shadow_shader_->SetMat4("uModel", model);
+
+            /*
+             * ImportedModel может состоять из нескольких Mesh.
+             * Все части должны участвовать в построении тени.
+             */
+            if (object->HasRenderParts()) {
+                for (const SceneObject::SceneRenderPart& part : object->GetRenderParts()) {
+                    if (part.mesh) {
+                        renderer_.DrawDepth(*part.mesh, *shadow_shader_);
+                    }
+                }
+
+                continue;
+            }
+
+            const std::shared_ptr<const Mesh> mesh = object->GetMesh();
+
+            if (mesh) {
+                renderer_.DrawDepth(*mesh, *shadow_shader_);
+            }
+        }
+    }
+    /*
+     * QOpenGLWidget использует собственный framebuffer.
+     * После Shadow Pass возвращаем именно его,
+     * а не предполагаемый framebuffer 0.
+     */
+    renderer_.BindFramebuffer(
+        static_cast<unsigned int>(
+            defaultFramebufferObject()
+        )
+    );
+
+    /**
+     * @brief Восстанавливаем размер viewport после Shadow Pass.
+     *
+     * QOpenGLWidget работает с High DPI.
+     * width() и height() возвращают логический размер Widget,
+     * а OpenGL framebuffer использует физические пиксели.
+     *
+     * На Retina devicePixelRatioF() обычно равен 2.0.
+     */
+    const float pixel_ratio = static_cast<float>(devicePixelRatioF());
+
+    renderer_.SetViewport(
+        static_cast<int>(static_cast<float>(width()) * pixel_ratio),
+        static_cast<int>(static_cast<float>(height()) * pixel_ratio)
+    );
+    return shadow_light_index;
+}
+
 void SceneViewport::resizeGL(int width, int height) {
     renderer_.SetViewport(width, height);
 
@@ -738,11 +1045,19 @@ void SceneViewport::resizeGL(int width, int height) {
 }
 
 void SceneViewport::paintGL() {
-    renderer_.BeginFrame(background_color_);
-
     if (!shader_) {
         return;
     }
+
+    /*
+     * Shadow Pass выполняется ДО обычного Color Pass.
+     *
+     * RenderPointShadowMap() после завершения восстанавливает
+     * framebuffer QOpenGLWidget и обычный viewport.
+     */
+    const int shadow_light_index = RenderPointShadowMap();
+
+    renderer_.BeginFrame(background_color_);
 
     const Matrix4 view = camera_.GetViewMatrix();
 
@@ -771,16 +1086,17 @@ void SceneViewport::paintGL() {
     shader_->SetFloat("uDashFill", 1.0f);
 
     /*
-     * Основной shader пока поддерживает один Point Light.
+     * Передаём в basic.frag все включённые Point Light.
      *
-     * Scene уже допускает несколько источников света,
-     * поэтому для освещения геометрии выбираем первый
-     * включённый PointLight.
+     * Каждый источник хранится внутри собственного SceneObject:
+     * - Position берётся из Transform;
+     * - Color / Intensity / Enabled берутся из PointLight.
      *
-     * Editor-маркеры при этом рисуются для всех источников.
+     * basic.frag поддерживает до kMaxPointLights источников одновременно.
+     * Лишние источники остаются объектами Scene, но в текущем кадре
+     * не участвуют в расчёте освещения.
      */
-    const SceneObject* active_light_object = nullptr;
-    const PointLight* active_light = nullptr;
+    int point_light_count = 0;
 
     for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
         if (!object || !object->HasPointLight()) {
@@ -793,55 +1109,59 @@ void SceneViewport::paintGL() {
             continue;
         }
 
-        active_light_object = object.get();
-        active_light = light;
-        break;
+        if (point_light_count >= kMaxPointLights) {
+            break;
+        }
+
+        const std::string uniform_prefix =
+            "uPointLights[" + std::to_string(point_light_count) + "]";
+
+        shader_->SetVec3(
+            uniform_prefix + ".position",
+            object->GetTransform().position
+        );
+
+        shader_->SetVec3(
+            uniform_prefix + ".color",
+            light->GetColor()
+        );
+
+        shader_->SetFloat(
+            uniform_prefix + ".intensity",
+            light->GetIntensity()
+        );
+
+        ++point_light_count;
     }
 
     /*
-     * Позиция PointLight определяется Transform SceneObject.
-     * Сам компонент PointLight хранит параметры освещения.
+     * Shader обрабатывает только реально переданные источники.
+     * Disabled Point Light в этот счётчик не попадает.
      */
-    if (active_light_object && active_light) {
-        shader_->SetVec3(
-            "uLightPosition",
-            active_light_object->GetTransform().position
-        );
-
-        shader_->SetVec3(
-            "uLightColor",
-            active_light->GetColor()
-        );
-
-        shader_->SetFloat(
-            "uLightIntensity",
-            active_light->GetIntensity()
-        );
-    } else {
-        /*
-         * Если в Scene нет включённого PointLight,
-         * освещение отключается нулевой интенсивностью.
-         */
-        shader_->SetVec3(
-            "uLightPosition",
-            Vec3{0.0f, 0.0f, 0.0f}
-        );
-
-        shader_->SetVec3(
-            "uLightColor",
-            Vec3{1.0f, 1.0f, 1.0f}
-        );
-
-        shader_->SetFloat(
-            "uLightIntensity",
-            0.0f
-        );
-    }
+    shader_->SetInt(
+        "uPointLightCount",
+        point_light_count
+    );
 
     shader_->SetVec3(
         "uViewPosition",
         camera_.GetPosition()
     );
+
+    /*
+     * Shadow uniforms являются дополнением к обычным Point Light.
+     *
+     * Если basic.frag ещё не содержит эти uniforms,
+     * OpenGL вернёт location = -1 и текущий renderer
+     * продолжит работать как раньше.
+     */
+    shader_->SetInt("uShadowLightIndex", shadow_light_index);
+    shader_->SetFloat("uShadowFarPlane", kPointShadowFarPlane);
+    shader_->SetInt("uPointShadowMap", 1);
+
+    if (shadow_light_index >= 0 && point_shadow_map_) {
+        point_shadow_map_->BindTexture(1);
+    }
 
     /*
      * Grid и мировые оси не используют освещение
@@ -2861,3 +3181,4 @@ void SceneViewport::CreatePointLightObject(bool select_object) {
 
     update();
 }
+

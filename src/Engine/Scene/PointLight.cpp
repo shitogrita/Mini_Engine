@@ -67,3 +67,19 @@ bool PointLight::IsEnabled() const {
 void PointLight::SetEnabled(bool enabled) {
 	enabled_ = enabled;
 }
+
+/**
+ * @brief Проверяет, должен ли PointLight отбрасывать тени.
+ */
+bool PointLight::CastsShadows() const {
+	return cast_shadows_;
+}
+
+/**
+ * @brief Включает или выключает построение теней PointLight.
+ *
+ * @param cast_shadows Новое состояние shadow rendering.
+ */
+void PointLight::SetCastShadows(bool cast_shadows) {
+	cast_shadows_ = cast_shadows;
+}

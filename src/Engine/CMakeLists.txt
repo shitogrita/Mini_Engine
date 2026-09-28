@@ -40,6 +40,8 @@ add_library(
         Renderer/Material.h
         Renderer/Texture2D.cpp
         Renderer/Texture2D.h
+        Renderer/PointShadowMap.cpp
+        Renderer/PointShadowMap.h
 
         Platform/OpenGL/Glad/glad.c
         Platform/OpenGL/Glad/glad.h
@@ -61,6 +63,7 @@ add_library(
         Scene/PointLight.cpp
         Scene/SceneSerializer.cpp
         Scene/SceneSerializer.h
+
 
         ThirdParty/stb/stb_image.h
 )
