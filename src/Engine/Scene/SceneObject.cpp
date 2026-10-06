@@ -37,6 +37,14 @@ const Transform& SceneObject::GetTransform() const {
     return transform_;
 }
 
+MotionState& SceneObject::GetMotionState() {
+    return motion_state_;
+}
+
+const MotionState& SceneObject::GetMotionState() const {
+    return motion_state_;
+}
+
 void SceneObject::SetMesh(std::shared_ptr<Mesh> mesh) {
     mesh_ = std::move(mesh);
 }

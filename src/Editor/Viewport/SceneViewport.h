@@ -12,7 +12,11 @@
 #include "Engine/Scene/PointLight.h"
 #include "Engine/Scene/Scene.h"
 #include "Engine/Scene/SceneObject.h"
+#include "Engine/Core/ExecutionMode.h"
+#include "Engine/Scene/SceneUpdateSystem.h"
+#include "Engine/Tests/TestScene.h"
 
+#include <chrono>
 #include <optional>
 #include <QElapsedTimer>
 #include <QOpenGLWidget>
@@ -107,6 +111,10 @@ public:
      * и перемещён так же, как остальные SceneObject.
      */
     void CreatePointLight();
+
+    bool StartTest(TestScene test_scene, ExecutionMode execution_mode);
+    void StopTest();
+    bool IsTestRunning() const;
 
 protected:
     void initializeGL() override;
@@ -266,4 +274,15 @@ private:
      * сразу становится выбранным.
      */
     void CreatePointLightObject(bool select_object);
+
+    SceneUpdateSystem scene_update_system_;
+
+    ExecutionMode execution_mode_ = ExecutionMode::SingleThreaded;
+
+    std::chrono::steady_clock::time_point last_frame_time_{};
+    bool first_frame_ = true;
+
+    std::optional<Scene> scene_before_test_;
+
+    bool test_running_ = false;
 };

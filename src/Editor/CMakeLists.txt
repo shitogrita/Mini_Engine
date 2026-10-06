@@ -8,12 +8,14 @@ add_executable(
 
         Panels/HierarchyPanel.cpp
         Panels/HierarchyPanel.h
-
         Panels/InspectorPanel.cpp
         Panels/InspectorPanel.h
-
         Panels/ProjectPanel.cpp
         Panels/ProjectPanel.h
+        Panels/TestsPanel.h
+        Panels/TestsPanel.cpp
+        Panels/TestsDialog.cpp
+        Panels/TestsDialog.h
 
         Viewport/SceneViewport.cpp
         Viewport/SceneViewport.h

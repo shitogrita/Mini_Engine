@@ -5,6 +5,7 @@
 #include "Engine/Scene/BoundingBox.h"
 #include "Engine/Scene/PointLight.h"
 #include "Engine/Scene/Transform.h"
+#include "Engine/Scene/MotionState.h"
 
 #include <filesystem>
 #include <memory>
@@ -209,12 +210,25 @@ public:
     /**
      * @brief Проверяет наличие компонента PointLight.
      */
+
     bool HasPointLight() const;
+    /**
+     * @brief Возвращает изменяемое состояние движения объекта.
+     */
+    MotionState& GetMotionState();
+
+    /**
+     * @brief Возвращает состояние движения только для чтения.
+     */
+    const MotionState& GetMotionState() const;
+
 
 private:
     std::string name_{"SceneObject"};
 
     Transform transform_{};
+
+    MotionState motion_state_{};
 
     std::shared_ptr<Mesh> mesh_;
 

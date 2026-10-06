@@ -4,10 +4,12 @@
 
 class QAction;
 class QDockWidget;
+class QToolBar;
 
 class HierarchyPanel;
 class InspectorPanel;
 class ProjectPanel;
+class TestsDialog;
 class SceneViewport;
 
 class EditorWindow final : public QMainWindow {
@@ -21,12 +23,15 @@ private:
 	void CreateStatusBar();
 	void ConfigureWindow();
 	void ApplyEditorStyle();
+	void CreateToolBar();
 
 	void OpenModelFile();
 	void SaveScene();
 	void OpenScene();
 	void ClearScene();
+	void ShowTestsDialog();
 
+private:
 	QAction* open_model_action_ = nullptr;
 	QAction* exit_action_ = nullptr;
 	QAction* open_scene_action_ = nullptr;
@@ -46,6 +51,7 @@ private:
 	QAction* show_hierarchy_action_ = nullptr;
 	QAction* show_inspector_action_ = nullptr;
 	QAction* show_project_action_ = nullptr;
+	QAction* open_tests_action_ = nullptr;
 
 	QAction* about_action_ = nullptr;
 
@@ -56,5 +62,7 @@ private:
 	HierarchyPanel* hierarchy_panel_ = nullptr;
 	InspectorPanel* inspector_panel_ = nullptr;
 	ProjectPanel* project_panel_ = nullptr;
+	TestsDialog* tests_dialog_ = nullptr;
+
 	SceneViewport* scene_viewport_ = nullptr;
 };

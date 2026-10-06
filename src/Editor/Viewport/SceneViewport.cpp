@@ -7,6 +7,7 @@
 #include "Engine/Scene/BoundingBox.h"
 #include "Engine/Renderer/PrimitiveGenerator.h"
 #include "Engine/Scene/SceneSerializer.h"
+#include "Engine/Tests/Cube1kTest.h"
 
 #include <QByteArray>
 #include <QFileInfo>
@@ -1048,6 +1049,19 @@ void SceneViewport::paintGL() {
     if (!shader_) {
         return;
     }
+
+    const auto current_time = std::chrono::steady_clock::now();
+
+    float delta_time = 0.0f;
+
+    if (!first_frame_) {
+        delta_time = std::chrono::duration<float>(current_time - last_frame_time_).count();
+    }
+
+    last_frame_time_ = current_time;
+    first_frame_ = false;
+
+    scene_update_system_.Update(scene_, delta_time, execution_mode_);
 
     /*
      * Shadow Pass выполняется ДО обычного Color Pass.
@@ -3182,3 +3196,129 @@ void SceneViewport::CreatePointLightObject(bool select_object) {
     update();
 }
 
+bool SceneViewport::StartTest(TestScene test_scene, ExecutionMode execution_mode) {
+    if (!gl_initialized_) {
+        return false;
+    }
+
+    if (test_running_) {
+        return false;
+    }
+
+    /*
+     * Реальный MultiThreaded путь мы ещё не написали.
+     *
+     * Не притворяемся, что он уже существует.
+     */
+    if (execution_mode == ExecutionMode::MultiThreaded) {
+        return false;
+    }
+
+    makeCurrent();
+
+    /*
+     * Сохраняем обычную пользовательскую Scene.
+     *
+     * После Stop Test она будет восстановлена.
+     */
+    scene_before_test_.emplace(std::move(scene_));
+
+    scene_ = Scene{};
+
+    selected_object_.reset();
+
+    switch (test_scene) {
+        case TestScene::Cube1k: {
+            const ImportedMeshData cube_data = PrimitiveGenerator::CreateCube();
+
+            std::shared_ptr<Mesh> cube_mesh = std::make_shared<Mesh>(cube_data);
+
+            Cube1kTest::Create(scene_, cube_mesh);
+
+            break;
+        }
+
+        default: {
+            scene_ = std::move(scene_before_test_.value());
+            scene_before_test_.reset();
+
+            doneCurrent();
+
+            return false;
+        }
+    }
+
+    doneCurrent();
+
+    execution_mode_ = execution_mode;
+
+    test_running_ = true;
+
+    /*
+     * Следующий paintGL будет первым кадром benchmark.
+     */
+    first_frame_ = true;
+
+    if (content_label_) {
+        content_label_->hide();
+    }
+
+    UpdateProjectionTitle();
+    UpdateCoordinatesLabel();
+    NotifySelectionChanged();
+
+    update();
+
+    return true;
+}
+
+void SceneViewport::StopTest() {
+    if (!test_running_) {
+        return;
+    }
+
+    /*
+     * GPU Mesh тестовой сцены необходимо удалить,
+     * пока OpenGL context активен.
+     */
+    makeCurrent();
+
+    scene_.Clear();
+
+    doneCurrent();
+
+    /*
+     * Возвращаем пользовательскую Scene.
+     */
+    if (scene_before_test_.has_value()) {
+        scene_ = std::move(scene_before_test_.value());
+        scene_before_test_.reset();
+    }
+
+    selected_object_.reset();
+
+    execution_mode_ = ExecutionMode::SingleThreaded;
+
+    test_running_ = false;
+
+    first_frame_ = true;
+
+    if (content_label_) {
+        if (scene_.GetObjects().empty()) {
+            content_label_->show();
+            content_label_->setText("Scene is empty");
+        } else {
+            content_label_->hide();
+        }
+    }
+
+    UpdateProjectionTitle();
+    UpdateCoordinatesLabel();
+    NotifySelectionChanged();
+
+    update();
+}
+
+bool SceneViewport::IsTestRunning() const {
+    return test_running_;
+}

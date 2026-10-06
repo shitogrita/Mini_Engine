@@ -3,7 +3,9 @@
 #include "Editor/Panels/HierarchyPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProjectPanel.h"
+#include "Editor/Panels/TestsDialog.h"
 #include "Editor/Viewport/SceneViewport.h"
+
 #include "Engine/Scene/SceneSerializer.h"
 
 #include <QAction>
@@ -11,15 +13,23 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QKeySequence>
-#include <QMessageBox>
-#include <QStatusBar>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
+#include <QStatusBar>
+#include <QToolBar>
 
+#include <memory>
+#include <utility>
+
+/**
+ * @brief Создаёт главное окно Mini Engine Editor.
+ */
 EditorWindow::EditorWindow(QWidget* parent) : QMainWindow(parent) {
     ConfigureWindow();
     CreateActions();
     CreateMenuBar();
+    CreateToolBar();
     CreateDockWidgets();
     CreateStatusBar();
     ApplyEditorStyle();
@@ -30,16 +40,32 @@ void EditorWindow::ConfigureWindow() {
     resize(1440, 900);
 
     setDockNestingEnabled(true);
+
     setDockOptions(
         QMainWindow::AllowNestedDocks |
         QMainWindow::AllowTabbedDocks |
         QMainWindow::AnimatedDocks
     );
 
+#ifdef Q_OS_MACOS
+    /*
+     * На macOS объединяет QToolBar с title bar окна.
+     *
+     * То есть Tests будет находиться в верхней системной
+     * области окна, рядом с macOS window chrome,
+     * а не отдельной полосой внутри Editor.
+     */
+    setUnifiedTitleAndToolBarOnMac(true);
+#endif
+
     scene_viewport_ = new SceneViewport(this);
+
     setCentralWidget(scene_viewport_);
 }
 
+/**
+ * @brief Создаёт QAction, используемые Editor.
+ */
 void EditorWindow::CreateActions() {
     open_model_action_ = new QAction("Open Model...", this);
     open_model_action_->setShortcut(QKeySequence::Open);
@@ -59,13 +85,20 @@ void EditorWindow::CreateActions() {
     redo_action_->setShortcut(QKeySequence::Redo);
 
     import_asset_action_ = new QAction("Import Asset...", this);
+
     create_material_action_ = new QAction("Create Material", this);
 
     create_empty_action_ = new QAction("Create Empty", this);
+
     create_cube_action_ = new QAction("Create Cube", this);
+
     create_light_action_ = new QAction("Create Light", this);
+
     clear_scene_action_ = new QAction("Clear Scene", this);
 
+    /*
+     * Действия управления основными DockWidget.
+     */
     show_hierarchy_action_ = new QAction("Hierarchy", this);
     show_inspector_action_ = new QAction("Inspector", this);
     show_project_action_ = new QAction("Project", this);
@@ -78,12 +111,25 @@ void EditorWindow::CreateActions() {
     show_inspector_action_->setChecked(true);
     show_project_action_->setChecked(true);
 
+    /*
+     * Tests не является DockWidget.
+     *
+     * Это действие открывает отдельное окно тестирования.
+     */
+    open_tests_action_ = new QAction("Tests", this);
+
     about_action_ = new QAction("About", this);
 
     connect(open_model_action_, &QAction::triggered, this, &EditorWindow::OpenModelFile);
+
     connect(save_scene_action_, &QAction::triggered, this, &EditorWindow::SaveScene);
+
     connect(open_scene_action_, &QAction::triggered, this, &EditorWindow::OpenScene);
+
     connect(exit_action_, &QAction::triggered, this, &QWidget::close);
+
+    connect(open_tests_action_, &QAction::triggered, this, &EditorWindow::ShowTestsDialog);
+
     /**
      * Создание Point Light работает так же,
      * как создание Cube / Plane / Sphere.
@@ -101,83 +147,153 @@ void EditorWindow::CreateActions() {
             scene_viewport_->GetSelectedObject()
         );
     });
-    connect(
-     clear_scene_action_,
-     &QAction::triggered,
-     this,
-     [this]() {
-         if (scene_viewport_) {
-             scene_viewport_->ClearScene();
-         }
 
-         if (hierarchy_panel_) {
-             hierarchy_panel_->Refresh();
-         }
+    /*
+     * Очистка текущей сцены.
+     */
+    connect(clear_scene_action_, &QAction::triggered, this, [this]() {
+        if (scene_viewport_) {
+            scene_viewport_->ClearScene();
+        }
 
-         if (inspector_panel_) {
-             inspector_panel_->ClearSelection();
-         }
+        if (hierarchy_panel_) {
+            hierarchy_panel_->Refresh();
+        }
 
-         if (project_panel_) {
-             project_panel_->ClearImportedFiles();
-         }
-         }
-     );
+        if (inspector_panel_) {
+            inspector_panel_->ClearSelection();
+        }
+
+        if (project_panel_) {
+            project_panel_->ClearImportedFiles();
+        }
+    });
 
     connect(about_action_, &QAction::triggered, this, [this]() {
-        QMessageBox::about(this, "About Mini Engine Editor", "Mini Engine Editor\nQt frontend for the game engine.");
+        QMessageBox::about(
+            this,
+            "About Mini Engine Editor",
+            "Mini Engine Editor\nQt frontend for the game engine."
+        );
     });
 }
 
+/**
+ * @brief Создаёт главное меню Editor.
+ */
 void EditorWindow::CreateMenuBar() {
     QMenu* file_menu = menuBar()->addMenu("File");
+
     file_menu->addAction(open_scene_action_);
     file_menu->addAction(save_scene_action_);
+
     file_menu->addSeparator();
+
     file_menu->addAction(open_model_action_);
+
     file_menu->addSeparator();
+
     file_menu->addAction(exit_action_);
 
+    /*
+     * Edit.
+     */
     QMenu* edit_menu = menuBar()->addMenu("Edit");
+
     edit_menu->addAction(undo_action_);
     edit_menu->addAction(redo_action_);
 
+    /*
+     * Assets.
+     */
     QMenu* assets_menu = menuBar()->addMenu("Assets");
+
     assets_menu->addAction(import_asset_action_);
     assets_menu->addAction(create_material_action_);
 
+    /*
+     * GameObject.
+     */
     QMenu* game_object_menu = menuBar()->addMenu("GameObject");
+
     game_object_menu->addAction(create_empty_action_);
     game_object_menu->addAction(create_cube_action_);
     game_object_menu->addAction(create_light_action_);
 
+    /*
+     * Scene.
+     */
     QMenu* scene_menu = menuBar()->addMenu("Scene");
+
     scene_menu->addAction(clear_scene_action_);
 
+    /*
+     * Window.
+     *
+     * Здесь остаётся управление стандартными DockWidget,
+     * а Tests открывается отдельным окном.
+     */
     QMenu* window_menu = menuBar()->addMenu("Window");
+
     window_menu->addAction(show_hierarchy_action_);
     window_menu->addAction(show_inspector_action_);
     window_menu->addAction(show_project_action_);
 
+    window_menu->addSeparator();
+
+    window_menu->addAction(open_tests_action_);
+
+    /*
+     * Help.
+     */
     QMenu* help_menu = menuBar()->addMenu("Help");
+
     help_menu->addAction(about_action_);
 }
 
+/**
+ * @brief Создаёт верхнюю панель быстрого доступа.
+ *
+ * Пока здесь находится кнопка Tests.
+ * Она открывает отдельное окно benchmark-системы.
+ */
+void EditorWindow::CreateToolBar() {
+    QToolBar* toolbar = new QToolBar(this);
+
+    toolbar->setObjectName("MainToolbar");
+
+    toolbar->setMovable(false);
+    toolbar->setFloatable(false);
+
+    toolbar->setAllowedAreas(Qt::TopToolBarArea);
+
+    toolbar->setToolButtonStyle(Qt::ToolButtonTextOnly);
+
+    toolbar->addAction(open_tests_action_);
+
+    addToolBar(Qt::TopToolBarArea, toolbar);
+}
+
+/**
+ * @brief Создаёт основные DockWidget редактора.
+ *
+ * Tests здесь намеренно отсутствует:
+ * тестирование открывается отдельным окном.
+ */
 void EditorWindow::CreateDockWidgets() {
-    hierarchy_dock_ =
-        new QDockWidget(
-            "Hierarchy",
-            this
-        );
+
+    hierarchy_dock_ = new QDockWidget(
+        "Hierarchy",
+        this
+    );
 
     hierarchy_dock_->setObjectName(
         "HierarchyDock"
     );
 
-    hierarchy_panel_ =
-        new HierarchyPanel(
-            hierarchy_dock_
-        );
+    hierarchy_panel_ = new HierarchyPanel(
+        hierarchy_dock_
+    );
 
     hierarchy_dock_->setWidget(
         hierarchy_panel_
@@ -188,21 +304,18 @@ void EditorWindow::CreateDockWidgets() {
         hierarchy_dock_
     );
 
-
-    inspector_dock_ =
-        new QDockWidget(
-            "Inspector",
-            this
-        );
+    inspector_dock_ = new QDockWidget(
+        "Inspector",
+        this
+    );
 
     inspector_dock_->setObjectName(
         "InspectorDock"
     );
 
-    inspector_panel_ =
-        new InspectorPanel(
-            inspector_dock_
-        );
+    inspector_panel_ = new InspectorPanel(
+        inspector_dock_
+    );
 
     /*
      * Любое изменение источника света
@@ -223,21 +336,18 @@ void EditorWindow::CreateDockWidgets() {
         inspector_dock_
     );
 
-
-    project_dock_ =
-        new QDockWidget(
-            "Project",
-            this
-        );
+    project_dock_ = new QDockWidget(
+        "Project",
+        this
+    );
 
     project_dock_->setObjectName(
         "ProjectDock"
     );
 
-    project_panel_ =
-        new ProjectPanel(
-            project_dock_
-        );
+    project_panel_ = new ProjectPanel(
+        project_dock_
+    );
 
     project_dock_->setWidget(
         project_panel_
@@ -247,7 +357,6 @@ void EditorWindow::CreateDockWidgets() {
         Qt::BottomDockWidgetArea,
         project_dock_
     );
-
 
     resizeDocks(
         {
@@ -271,7 +380,6 @@ void EditorWindow::CreateDockWidgets() {
         Qt::Vertical
     );
 
-
     connect(
         show_hierarchy_action_,
         &QAction::toggled,
@@ -292,7 +400,6 @@ void EditorWindow::CreateDockWidgets() {
         project_dock_,
         &QDockWidget::setVisible
     );
-
 
     connect(
         hierarchy_dock_,
@@ -315,48 +422,21 @@ void EditorWindow::CreateDockWidgets() {
         &QAction::setChecked
     );
 
-
-    // Hierarchy теперь показывает реальные объекты,
+    // Hierarchy показывает реальные объекты,
     // которые находятся в SceneViewport::scene_.
     hierarchy_panel_->SetScene(
         &scene_viewport_->GetScene()
     );
 
-
     // Клик по объекту в Hierarchy:
     //
     // 1. запоминаем выбранный SceneObject в viewport;
     // 2. передаём тот же объект в Inspector.
-    hierarchy_panel_->
-        SetSelectionChangedCallback(
-            [this](
-                std::shared_ptr<SceneObject> object
-            )
-            {
-                scene_viewport_->
-                    SetSelectedObject(
-                        object
-                    );
-
-                inspector_panel_->
-                    SetSelectedObject(
-                        std::move(object)
-                    );
-            }
-        );
-
-    // Клик по объекту непосредственно во Viewport:
-    //
-    // 1. Ray Picking определяет выбранный SceneObject;
-    // 2. Hierarchy выделяет тот же объект;
-    // 3. Inspector начинает отображать его Transform.
-    scene_viewport_->SetSelectionChangedCallback(
-    [this](std::shared_ptr<SceneObject> object) {
-            if (!object) {
-                hierarchy_panel_->Refresh();
-            }
-
-            hierarchy_panel_->SetSelectedObject(object);
+    hierarchy_panel_->SetSelectionChangedCallback(
+        [this](std::shared_ptr<SceneObject> object) {
+            scene_viewport_->SetSelectedObject(
+                object
+            );
 
             inspector_panel_->SetSelectedObject(
                 std::move(object)
@@ -364,10 +444,29 @@ void EditorWindow::CreateDockWidgets() {
         }
     );
 
-    // Когда пользователь меняет Position / Rotation / Scale
-    // в Inspector, Transform объекта уже изменяется там.
-    // Здесь только просим viewport перерисовать сцену,
-    // чтобы изменение сразу стало видно.
+    // Клик по объекту непосредственно во Viewport:
+    //
+    // 1. Ray Picking определяет выбранный SceneObject;
+    // 2. Hierarchy выделяет тот же объект;
+    // 3. Inspector начинает отображать его Transform.
+    scene_viewport_->SetSelectionChangedCallback(
+        [this](std::shared_ptr<SceneObject> object) {
+            if (!object) {
+                hierarchy_panel_->Refresh();
+            }
+
+            hierarchy_panel_->SetSelectedObject(
+                object
+            );
+
+            inspector_panel_->SetSelectedObject(
+                std::move(object)
+            );
+        }
+    );
+
+    // Когда пользователь меняет Material Texture,
+    // фактическую загрузку OpenGL Texture выполняет SceneViewport.
     inspector_panel_->SetTextureChangedCallback(
         [this](Material& material, const QString& file_path) {
             scene_viewport_->SetMaterialTexture(
@@ -377,12 +476,14 @@ void EditorWindow::CreateDockWidgets() {
         }
     );
 
-    scene_viewport_->
-    SetTransformChangedCallback(
-        [this]()
-        {
-            inspector_panel_->
-                RefreshTransformFields();
+
+    /*
+     * Когда Transform изменяется через Gizmo,
+     * Inspector должен обновить свои поля.
+     */
+    scene_viewport_->SetTransformChangedCallback(
+        [this]() {
+            inspector_panel_->RefreshTransformFields();
         }
     );
 
@@ -394,51 +495,168 @@ void EditorWindow::CreateDockWidgets() {
 
     connect(create_cube_action, &QAction::triggered, this, [this]() {
         scene_viewport_->CreateCube();
+
         hierarchy_panel_->Refresh();
-        hierarchy_panel_->SetSelectedObject(scene_viewport_->GetSelectedObject());
+
+        hierarchy_panel_->SetSelectedObject(
+            scene_viewport_->GetSelectedObject()
+        );
     });
 
     connect(create_plane_action, &QAction::triggered, this, [this]() {
         scene_viewport_->CreatePlane();
+
         hierarchy_panel_->Refresh();
-        hierarchy_panel_->SetSelectedObject(scene_viewport_->GetSelectedObject());
+
+        hierarchy_panel_->SetSelectedObject(
+            scene_viewport_->GetSelectedObject()
+        );
     });
 
     connect(create_sphere_action, &QAction::triggered, this, [this]() {
         scene_viewport_->CreateSphere();
+
         hierarchy_panel_->Refresh();
-        hierarchy_panel_->SetSelectedObject(scene_viewport_->GetSelectedObject());
+
+        hierarchy_panel_->SetSelectedObject(
+            scene_viewport_->GetSelectedObject()
+        );
     });
 }
 
+/**
+ * @brief Создаёт Status Bar.
+ */
 void EditorWindow::CreateStatusBar() {
     statusBar()->showMessage("Ready");
 }
 
-void EditorWindow::OpenModelFile() {
-    const QString file_path =
-        QFileDialog::getOpenFileName(
-            this,
-            "Open model",
-            QString(),
-            "3D models (*.obj);;Wavefront OBJ (*.obj);;All files (*.*)"
+/**
+ * @brief Открывает отдельное окно нагрузочных тестов.
+ *
+ * Окно создаётся один раз.
+ * Последующие нажатия Tests только показывают уже существующий Dialog.
+ */
+void EditorWindow::ShowTestsDialog() {
+    if (!tests_dialog_) {
+        tests_dialog_ = new TestsDialog(this);
+
+        tests_dialog_->SetRunTestCallback(
+            [this](TestScene test_scene, ExecutionMode execution_mode) {
+                /*
+                 * MultiThread пока специально не запускаем:
+                 * настоящий ThreadPool будет следующим этапом.
+                 */
+                if (execution_mode == ExecutionMode::MultiThreaded) {
+                    QMessageBox::information(
+                        this,
+                        "Multi Thread",
+                        "Multi Thread mode will be enabled after ThreadPool implementation."
+                    );
+
+                    return;
+                }
+
+                const bool started = scene_viewport_->StartTest(test_scene, execution_mode);
+
+                if (!started) {
+                    QMessageBox::warning(
+                        this,
+                        "Tests",
+                        "Failed to start test."
+                    );
+
+                    return;
+                }
+
+                hierarchy_panel_->Refresh();
+
+                hierarchy_panel_->SetSelectedObject(nullptr);
+
+                inspector_panel_->ClearSelection();
+
+                tests_dialog_->SetRunning(true);
+
+                tests_dialog_->SetPerformanceStats(
+                    scene_viewport_->GetScene().GetObjects().size(),
+                    1,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                );
+
+                statusBar()->showMessage(
+                    "1k Cube test started",
+                    2000
+                );
+            }
         );
+
+        tests_dialog_->SetStopTestCallback(
+            [this]() {
+                scene_viewport_->StopTest();
+
+                hierarchy_panel_->Refresh();
+
+                hierarchy_panel_->SetSelectedObject(nullptr);
+
+                inspector_panel_->ClearSelection();
+
+                tests_dialog_->SetRunning(false);
+
+                tests_dialog_->ResetPerformanceStats();
+
+                statusBar()->showMessage(
+                    "Test stopped",
+                    2000
+                );
+            }
+        );
+    }
+
+    tests_dialog_->show();
+    tests_dialog_->raise();
+    tests_dialog_->activateWindow();
+}
+
+/**
+ * @brief Открывает OBJ-модель.
+ */
+void EditorWindow::OpenModelFile() {
+    const QString file_path = QFileDialog::getOpenFileName(
+        this,
+        "Open model",
+        QString(),
+        "3D models (*.obj);;Wavefront OBJ (*.obj);;All files (*.*)"
+    );
 
     if (file_path.isEmpty()) {
         return;
     }
 
-    const QFileInfo file_info(file_path);
+    const QFileInfo file_info(
+        file_path
+    );
 
-    scene_viewport_->SetDisplayedFile(file_path);
+    scene_viewport_->SetDisplayedFile(
+        file_path
+    );
+
     hierarchy_panel_->Refresh();
-    project_panel_->AddImportedFile(file_path);
+
+    project_panel_->AddImportedFile(
+        file_path
+    );
 
     statusBar()->showMessage(
         "Selected model: " + file_info.fileName()
     );
 }
 
+/**
+ * @brief Полностью очищает текущую Scene.
+ */
 void EditorWindow::ClearScene() {
     const QMessageBox::StandardButton answer = QMessageBox::question(
         this,
@@ -455,15 +673,25 @@ void EditorWindow::ClearScene() {
     scene_viewport_->ClearScene();
 
     hierarchy_panel_->Refresh();
-    hierarchy_panel_->SetSelectedObject(nullptr);
 
-    inspector_panel_->SetSelectedObject(nullptr);
+    hierarchy_panel_->SetSelectedObject(
+        nullptr
+    );
+
+    inspector_panel_->SetSelectedObject(
+        nullptr
+    );
 
     project_panel_->ClearImportedFiles();
 
-    statusBar()->showMessage("Scene cleared");
+    statusBar()->showMessage(
+        "Scene cleared"
+    );
 }
 
+/**
+ * @brief Сохраняет текущую Scene.
+ */
 void EditorWindow::SaveScene() {
     QString file_path = QFileDialog::getSaveFileName(
         this,
@@ -491,6 +719,7 @@ void EditorWindow::SaveScene() {
             "Save Scene",
             "Failed to save scene."
         );
+
         return;
     }
 
@@ -500,6 +729,9 @@ void EditorWindow::SaveScene() {
     );
 }
 
+/**
+ * @brief Загружает Scene из файла.
+ */
 void EditorWindow::OpenScene() {
     const QString file_path = QFileDialog::getOpenFileName(
         this,
@@ -512,7 +744,9 @@ void EditorWindow::OpenScene() {
         return;
     }
 
-    const bool loaded = scene_viewport_->LoadScene(file_path);
+    const bool loaded = scene_viewport_->LoadScene(
+        file_path
+    );
 
     if (!loaded) {
         QMessageBox::warning(
@@ -525,8 +759,14 @@ void EditorWindow::OpenScene() {
     }
 
     hierarchy_panel_->Refresh();
-    hierarchy_panel_->SetSelectedObject(nullptr);
-    inspector_panel_->SetSelectedObject(nullptr);
+
+    hierarchy_panel_->SetSelectedObject(
+        nullptr
+    );
+
+    inspector_panel_->SetSelectedObject(
+        nullptr
+    );
 
     statusBar()->showMessage(
         "Scene opened: " + QFileInfo(file_path).fileName(),
@@ -534,6 +774,9 @@ void EditorWindow::OpenScene() {
     );
 }
 
+/**
+ * @brief Устанавливает общий визуальный стиль Mini Engine Editor.
+ */
 void EditorWindow::ApplyEditorStyle() {
     setStyleSheet(
         R"(
@@ -579,7 +822,31 @@ void EditorWindow::ApplyEditorStyle() {
                 background-color: #365880;
                 color: white;
             }
+            QToolBar {
+                background-color: #3c3f41;
+                border: none;
+                border-bottom: 1px solid #51555a;
+                spacing: 5px;
+                padding: 4px 6px;
+            }
 
+            QToolButton {
+                background-color: #45484c;
+                color: #d7dae0;
+                border: 1px solid #5b5f64;
+                border-radius: 4px;
+                padding: 5px 12px;
+            }
+
+            QToolButton:hover {
+                background-color: #50545a;
+                border-color: #6a6e74;
+            }
+
+            QToolButton:pressed {
+                background-color: #365880;
+                color: white;
+            }
             QDockWidget {
                 color: #d7dae0;
                 font-weight: 600;
@@ -591,7 +858,6 @@ void EditorWindow::ApplyEditorStyle() {
                 padding: 7px 8px;
                 text-align: left;
             }
-
             QTreeWidget {
                 background-color: #313335;
                 color: #d7dae0;
@@ -613,11 +879,9 @@ void EditorWindow::ApplyEditorStyle() {
                 background-color: #365880;
                 color: #ffffff;
             }
-
             QLabel {
                 color: #d7dae0;
             }
-
             QLineEdit {
                 background-color: #2b2d30;
                 color: #d7dae0;
@@ -630,7 +894,6 @@ void EditorWindow::ApplyEditorStyle() {
             QLineEdit:focus {
                 border: 1px solid #4a88c7;
             }
-
             QDoubleSpinBox {
                 background-color: #2b2d30;
                 color: #d7dae0;
@@ -651,17 +914,83 @@ void EditorWindow::ApplyEditorStyle() {
                 height: 0px;
                 border: none;
             }
+            QComboBox {
+                background-color: #2b2d30;
+                color: #d7dae0;
+                border: 1px solid #55595f;
+                border-radius: 4px;
+                padding: 6px 8px;
+                min-height: 24px;
+            }
 
+            QComboBox:hover {
+                border: 1px solid #6a6e74;
+            }
+
+            QComboBox:focus {
+                border: 1px solid #4a88c7;
+            }
+
+            QComboBox::drop-down {
+                border: none;
+                width: 24px;
+            }
+
+            QComboBox QAbstractItemView {
+                background-color: #313335;
+                color: #d7dae0;
+                border: 1px solid #55595f;
+                selection-background-color: #365880;
+                selection-color: white;
+                outline: none;
+            }
+            QPushButton {
+                background-color: #45484c;
+                color: #d7dae0;
+                border: 1px solid #5b5f64;
+                border-radius: 4px;
+                padding: 6px 14px;
+                min-height: 24px;
+            }
+
+            QPushButton:hover {
+                background-color: #50545a;
+                border-color: #6a6e74;
+            }
+
+            QPushButton:pressed {
+                background-color: #365880;
+                color: white;
+            }
+
+            QPushButton:disabled {
+                color: #777a80;
+                background-color: #35373a;
+                border-color: #484b50;
+            }
+            QGroupBox {
+                border: 1px solid #51555a;
+                border-radius: 5px;
+                margin-top: 12px;
+                padding: 12px 8px 8px 8px;
+                font-weight: 600;
+            }
+
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0px 5px;
+                color: #d7dae0;
+            }
             QStatusBar {
                 background-color: #3c3f41;
                 color: #b8bbc1;
                 border-top: 1px solid #51555a;
             }
-
             QSplitter::handle {
                 background-color: #51555a;
             }
-
             QScrollBar:vertical {
                 background-color: #313335;
                 width: 11px;
@@ -682,7 +1011,6 @@ void EditorWindow::ApplyEditorStyle() {
             QScrollBar::sub-line:vertical {
                 height: 0px;
             }
-
             QScrollBar:horizontal {
                 background-color: #313335;
                 height: 11px;
@@ -702,7 +1030,6 @@ void EditorWindow::ApplyEditorStyle() {
             QScrollBar::sub-line:horizontal {
                 width: 0px;
             }
-
             QToolTip {
                 background-color: #45484c;
                 color: #f0f0f0;
@@ -712,6 +1039,3 @@ void EditorWindow::ApplyEditorStyle() {
         )"
     );
 }
-
-
-

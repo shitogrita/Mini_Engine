@@ -6,6 +6,7 @@ add_library(
         Core/Application.h
         Core/Window.cpp
         Core/Window.h
+        Core/ExecutionMode.h
 
         Assets/ImportedMeshData.h
         Assets/ObjParser.cpp
@@ -63,6 +64,14 @@ add_library(
         Scene/PointLight.cpp
         Scene/SceneSerializer.cpp
         Scene/SceneSerializer.h
+        Scene/SceneUpdateSystem.cpp
+        Scene/SceneUpdateSystem.h
+        Scene/MotionState.h
+
+        Tests/TestScene.h
+        Tests/Cube1kTest.h
+        Tests/Cube1kTest.cpp
+
 
 
         ThirdParty/stb/stb_image.h
