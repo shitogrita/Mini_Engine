@@ -17,7 +17,6 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QStatusBar>
-#include <QToolBar>
 
 #include <memory>
 #include <utility>
@@ -29,7 +28,6 @@ EditorWindow::EditorWindow(QWidget* parent) : QMainWindow(parent) {
     ConfigureWindow();
     CreateActions();
     CreateMenuBar();
-    CreateToolBar();
     CreateDockWidgets();
     CreateStatusBar();
     ApplyEditorStyle();
@@ -116,7 +114,7 @@ void EditorWindow::CreateActions() {
      *
      * Это действие открывает отдельное окно тестирования.
      */
-    open_tests_action_ = new QAction("Tests", this);
+    open_tests_action_ = new QAction("Open Tests...", this);
 
     about_action_ = new QAction("About", this);
 
@@ -129,6 +127,12 @@ void EditorWindow::CreateActions() {
     connect(exit_action_, &QAction::triggered, this, &QWidget::close);
 
     connect(open_tests_action_, &QAction::triggered, this, &EditorWindow::ShowTestsDialog);
+
+    connect(create_cube_action_, &QAction::triggered, this, [this]() {
+        scene_viewport_->CreateCube();
+        hierarchy_panel_->Refresh();
+        hierarchy_panel_->SetSelectedObject(scene_viewport_->GetSelectedObject());
+    });
 
     /**
      * Создание Point Light работает так же,
@@ -182,96 +186,60 @@ void EditorWindow::CreateActions() {
  * @brief Создаёт главное меню Editor.
  */
 void EditorWindow::CreateMenuBar() {
-    QMenu* file_menu = menuBar()->addMenu("File");
+    menuBar()->setNativeMenuBar(true);
 
+    QMenu* file_menu = menuBar()->addMenu("File");
     file_menu->addAction(open_scene_action_);
     file_menu->addAction(save_scene_action_);
-
     file_menu->addSeparator();
-
     file_menu->addAction(open_model_action_);
-
     file_menu->addSeparator();
-
     file_menu->addAction(exit_action_);
 
-    /*
-     * Edit.
-     */
     QMenu* edit_menu = menuBar()->addMenu("Edit");
-
     edit_menu->addAction(undo_action_);
     edit_menu->addAction(redo_action_);
 
-    /*
-     * Assets.
-     */
     QMenu* assets_menu = menuBar()->addMenu("Assets");
-
     assets_menu->addAction(import_asset_action_);
     assets_menu->addAction(create_material_action_);
 
-    /*
-     * GameObject.
-     */
     QMenu* game_object_menu = menuBar()->addMenu("GameObject");
-
     game_object_menu->addAction(create_empty_action_);
     game_object_menu->addAction(create_cube_action_);
     game_object_menu->addAction(create_light_action_);
 
-    /*
-     * Scene.
-     */
     QMenu* scene_menu = menuBar()->addMenu("Scene");
-
     scene_menu->addAction(clear_scene_action_);
 
-    /*
-     * Window.
-     *
-     * Здесь остаётся управление стандартными DockWidget,
-     * а Tests открывается отдельным окном.
-     */
     QMenu* window_menu = menuBar()->addMenu("Window");
-
     window_menu->addAction(show_hierarchy_action_);
     window_menu->addAction(show_inspector_action_);
     window_menu->addAction(show_project_action_);
 
-    window_menu->addSeparator();
+    QMenu* create_menu = menuBar()->addMenu("Create");
 
-    window_menu->addAction(open_tests_action_);
+    create_menu->addAction(create_cube_action_);
+    QAction* create_plane_action = create_menu->addAction("Plane");
+    QAction* create_sphere_action = create_menu->addAction("Sphere");
 
-    /*
-     * Help.
-     */
+    connect(create_plane_action, &QAction::triggered, this, [this]() {
+        scene_viewport_->CreatePlane();
+        hierarchy_panel_->Refresh();
+        hierarchy_panel_->SetSelectedObject(scene_viewport_->GetSelectedObject());
+    });
+
+    connect(create_sphere_action, &QAction::triggered, this, [this]() {
+        scene_viewport_->CreateSphere();
+        hierarchy_panel_->Refresh();
+        hierarchy_panel_->SetSelectedObject(scene_viewport_->GetSelectedObject());
+    });
+
+    QMenu* tests_menu = menuBar()->addMenu("Tests");
+    tests_menu->addAction(open_tests_action_);
+
     QMenu* help_menu = menuBar()->addMenu("Help");
-
     help_menu->addAction(about_action_);
-}
-
-/**
- * @brief Создаёт верхнюю панель быстрого доступа.
- *
- * Пока здесь находится кнопка Tests.
- * Она открывает отдельное окно benchmark-системы.
- */
-void EditorWindow::CreateToolBar() {
-    QToolBar* toolbar = new QToolBar(this);
-
-    toolbar->setObjectName("MainToolbar");
-
-    toolbar->setMovable(false);
-    toolbar->setFloatable(false);
-
-    toolbar->setAllowedAreas(Qt::TopToolBarArea);
-
-    toolbar->setToolButtonStyle(Qt::ToolButtonTextOnly);
-
-    toolbar->addAction(open_tests_action_);
-
-    addToolBar(Qt::TopToolBarArea, toolbar);
 }
 
 /**
@@ -486,42 +454,14 @@ void EditorWindow::CreateDockWidgets() {
             inspector_panel_->RefreshTransformFields();
         }
     );
-
+    /*
     QMenu* create_menu = menuBar()->addMenu("Create");
 
     QAction* create_cube_action = create_menu->addAction("Cube");
     QAction* create_plane_action = create_menu->addAction("Plane");
     QAction* create_sphere_action = create_menu->addAction("Sphere");
+    */
 
-    connect(create_cube_action, &QAction::triggered, this, [this]() {
-        scene_viewport_->CreateCube();
-
-        hierarchy_panel_->Refresh();
-
-        hierarchy_panel_->SetSelectedObject(
-            scene_viewport_->GetSelectedObject()
-        );
-    });
-
-    connect(create_plane_action, &QAction::triggered, this, [this]() {
-        scene_viewport_->CreatePlane();
-
-        hierarchy_panel_->Refresh();
-
-        hierarchy_panel_->SetSelectedObject(
-            scene_viewport_->GetSelectedObject()
-        );
-    });
-
-    connect(create_sphere_action, &QAction::triggered, this, [this]() {
-        scene_viewport_->CreateSphere();
-
-        hierarchy_panel_->Refresh();
-
-        hierarchy_panel_->SetSelectedObject(
-            scene_viewport_->GetSelectedObject()
-        );
-    });
 }
 
 /**
@@ -541,6 +481,22 @@ void EditorWindow::ShowTestsDialog() {
     if (!tests_dialog_) {
         tests_dialog_ = new TestsDialog(this);
 
+        scene_viewport_->SetPerformanceStatsCallback(
+            [this](const PerformanceStats& stats) {
+                if (!tests_dialog_) {
+                    return;
+                }
+
+                tests_dialog_->SetPerformanceStats(
+                    stats.object_count,
+                    stats.worker_count,
+                    stats.update_ms,
+                    stats.render_ms,
+                    stats.frame_ms,
+                    stats.fps
+                );
+            }
+        );
         tests_dialog_->SetRunTestCallback(
             [this](TestScene test_scene, ExecutionMode execution_mode) {
                 /*
@@ -576,15 +532,6 @@ void EditorWindow::ShowTestsDialog() {
                 inspector_panel_->ClearSelection();
 
                 tests_dialog_->SetRunning(true);
-
-                tests_dialog_->SetPerformanceStats(
-                    scene_viewport_->GetScene().GetObjects().size(),
-                    1,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0
-                );
 
                 statusBar()->showMessage(
                     "1k Cube test started",
@@ -857,6 +804,25 @@ void EditorWindow::ApplyEditorStyle() {
                 border-bottom: 1px solid #585c61;
                 padding: 7px 8px;
                 text-align: left;
+            }
+
+            QDockWidget QWidget {
+                background-color: #313335;
+                color: #d7dae0;
+            }
+
+            QDockWidget QScrollArea {
+                background-color: #313335;
+                border: none;
+            }
+
+            QDockWidget QScrollArea QWidget {
+                background-color: #313335;
+            }
+
+            QDockWidget QLabel {
+                background-color: transparent;
+                color: #d7dae0;
             }
             QTreeWidget {
                 background-color: #313335;

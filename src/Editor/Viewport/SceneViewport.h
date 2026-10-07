@@ -15,6 +15,7 @@
 #include "Engine/Core/ExecutionMode.h"
 #include "Engine/Scene/SceneUpdateSystem.h"
 #include "Engine/Tests/TestScene.h"
+#include "Engine/Diagnostics/PerformanceStats.h"
 
 #include <chrono>
 #include <optional>
@@ -77,6 +78,7 @@ public:
 
     using SelectionChangedCallback = std::function<void(std::shared_ptr<SceneObject>)>;
     using TransformChangedCallback = std::function<void()>;
+    using PerformanceStatsCallback = std::function<void(const PerformanceStats&)>;
 
     explicit SceneViewport(QWidget* parent = nullptr);
     ~SceneViewport() override;
@@ -115,6 +117,8 @@ public:
     bool StartTest(TestScene test_scene, ExecutionMode execution_mode);
     void StopTest();
     bool IsTestRunning() const;
+
+    void SetPerformanceStatsCallback(PerformanceStatsCallback callback);
 
 protected:
     void initializeGL() override;
@@ -173,6 +177,15 @@ private:
     GizmoAxis PickMoveScaleGizmoAxis(const QPointF& mouse_position) const;
     GizmoAxis PickRotateGizmoAxis(const QPointF& mouse_position) const;
     bool TryBeginGizmoDrag(const QPointF& mouse_position);
+
+    float CalculateFrameDeltaTime(const std::chrono::steady_clock::time_point& frame_start);
+    Matrix4 CreateProjectionMatrix() const;
+    void PrepareMainShader(int shadow_light_index);
+    void RenderGridAndAxes(const Matrix4& view_projection);
+    void RenderSceneObjects(const Matrix4& view, const Matrix4& projection);
+    void RenderPointLightMarkers(const Matrix4& view, const Matrix4& projection);
+    void RenderTransformGizmo(const Matrix4& view, const Matrix4& projection);
+    void UpdatePerformanceStats(const std::chrono::steady_clock::time_point& frame_start, const std::chrono::steady_clock::time_point& update_start, const std::chrono::steady_clock::time_point& update_end, const std::chrono::steady_clock::time_point& render_start, const std::chrono::steady_clock::time_point& frame_end);
 
     /**
      * @brief Строит Depth Cubemap для первого активного Point Light,
@@ -276,13 +289,15 @@ private:
     void CreatePointLightObject(bool select_object);
 
     SceneUpdateSystem scene_update_system_;
-
     ExecutionMode execution_mode_ = ExecutionMode::SingleThreaded;
 
     std::chrono::steady_clock::time_point last_frame_time_{};
     bool first_frame_ = true;
 
     std::optional<Scene> scene_before_test_;
-
     bool test_running_ = false;
+
+    PerformanceStatsCallback performance_stats_callback_;
+    std::chrono::steady_clock::time_point previous_frame_time_{};
+    double performance_accumulator_ = 0.0;
 };

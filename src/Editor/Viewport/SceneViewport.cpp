@@ -389,6 +389,12 @@ SceneViewport::~SceneViewport() {
         makeCurrent();
 
         scene_.Clear();
+
+        if (scene_before_test_.has_value()) {
+            scene_before_test_->Clear();
+            scene_before_test_.reset();
+        }
+
         texture_manager_.Clear();
 
         /*
@@ -513,46 +519,24 @@ void SceneViewport::initializeGL() {
 
     light_mesh_ = std::make_unique<Mesh>(PrimitiveGenerator::CreateSphere(0.08f, 16, 8));
 
-    /**
-     * @brief Создание ресурсов Point Shadow Mapping.
+    /*
+     * Shadow resources создаются отдельно от обычного освещения.
      *
-     * Shadow shaders являются обязательной частью текущего Renderer.
-     * Если один из файлов отсутствует, ошибка должна быть видна сразу,
-     * а не приводить к тихому отключению теней.
+     * Пока shadow shaders не добавлены в проект, этот блок
+     * просто пропускается и текущий multi-light renderer
+     * продолжает работать без изменений.
      */
-    const std::filesystem::path shadow_vertex_path =
-        shader_directory / "pointShadow.vert";
+    const std::filesystem::path shadow_vertex_path = shader_directory / "point_shadow.vert";
+    const std::filesystem::path shadow_fragment_path = shader_directory / "point_shadow.frag";
 
-    const std::filesystem::path shadow_fragment_path =
-        shader_directory / "pointShadow.frag";
+    if (std::filesystem::exists(shadow_vertex_path) && std::filesystem::exists(shadow_fragment_path)) {
+        shadow_shader_ = std::make_unique<Shader>(shadow_vertex_path, shadow_fragment_path);
+        point_shadow_map_ = std::make_unique<PointShadowMap>();
 
-    if (!std::filesystem::exists(shadow_vertex_path)) {
-        throw std::runtime_error(
-            "Point shadow vertex shader not found: " +
-            shadow_vertex_path.string()
-        );
-    }
-
-    if (!std::filesystem::exists(shadow_fragment_path)) {
-        throw std::runtime_error(
-            "Point shadow fragment shader not found: " +
-            shadow_fragment_path.string()
-        );
-    }
-
-    shadow_shader_ =
-        std::make_unique<Shader>(
-            shadow_vertex_path,
-            shadow_fragment_path
-        );
-
-    point_shadow_map_ =
-        std::make_unique<PointShadowMap>();
-
-    if (!point_shadow_map_->Initialize(kPointShadowResolution)) {
-        throw std::runtime_error(
-            "Failed to initialize Point Shadow Map"
-        );
+        if (!point_shadow_map_->Initialize(kPointShadowResolution)) {
+            point_shadow_map_.reset();
+            shadow_shader_.reset();
+        }
     }
 
     /*
@@ -998,40 +982,27 @@ int SceneViewport::RenderPointShadowMap() {
             }
         }
     }
+
     /*
-     * QOpenGLWidget использует собственный framebuffer.
-     * После Shadow Pass возвращаем именно его,
-     * а не предполагаемый framebuffer 0.
+     * QOpenGLWidget не обязан рисовать во framebuffer 0.
+     * Возвращаем именно framebuffer текущего SceneViewport.
      */
     renderer_.BindFramebuffer(
-        static_cast<unsigned int>(
-            defaultFramebufferObject()
-        )
+        static_cast<unsigned int>(defaultFramebufferObject())
     );
-
-    /**
-     * @brief Восстанавливаем размер viewport после Shadow Pass.
-     *
-     * QOpenGLWidget работает с High DPI.
-     * width() и height() возвращают логический размер Widget,
-     * а OpenGL framebuffer использует физические пиксели.
-     *
-     * На Retina devicePixelRatioF() обычно равен 2.0.
-     */
-    const float pixel_ratio = static_cast<float>(devicePixelRatioF());
 
     renderer_.SetViewport(
-        static_cast<int>(static_cast<float>(width()) * pixel_ratio),
-        static_cast<int>(static_cast<float>(height()) * pixel_ratio)
+        width(),
+        height()
     );
+
     return shadow_light_index;
 }
 
 void SceneViewport::resizeGL(int width, int height) {
     renderer_.SetViewport(width, height);
 
-    if (title_label_ != nullptr) {
-        title_label_->setGeometry(0, 0, width, 34);
+    if (title_label_ != nullptr) {title_label_->setGeometry(0, 0, width, 34);
     }
 
     if (content_label_ != nullptr) {
@@ -1045,53 +1016,33 @@ void SceneViewport::resizeGL(int width, int height) {
     }
 }
 
-void SceneViewport::paintGL() {
-    if (!shader_) {
-        return;
-    }
-
-    const auto current_time = std::chrono::steady_clock::now();
-
+float SceneViewport::CalculateFrameDeltaTime(const std::chrono::steady_clock::time_point& frame_start) {
     float delta_time = 0.0f;
 
-    if (!first_frame_) {
-        delta_time = std::chrono::duration<float>(current_time - last_frame_time_).count();
+    if (previous_frame_time_.time_since_epoch().count() != 0) {
+        delta_time = std::chrono::duration<float>(frame_start - previous_frame_time_).count();
     }
 
-    last_frame_time_ = current_time;
-    first_frame_ = false;
+    previous_frame_time_ = frame_start;
+    return delta_time;
+}
 
-    scene_update_system_.Update(scene_, delta_time, execution_mode_);
-
-    /*
-     * Shadow Pass выполняется ДО обычного Color Pass.
-     *
-     * RenderPointShadowMap() после завершения восстанавливает
-     * framebuffer QOpenGLWidget и обычный viewport.
-     */
-    const int shadow_light_index = RenderPointShadowMap();
-
-    renderer_.BeginFrame(background_color_);
-
-    const Matrix4 view = camera_.GetViewMatrix();
-
+Matrix4 SceneViewport::CreateProjectionMatrix() const {
     const float aspect = height() > 0
         ? static_cast<float>(width()) / static_cast<float>(height())
         : 1.0f;
 
-    Matrix4 projection{};
-
     if (projection_mode_ == ProjectionMode::Perspective) {
-        projection = Projection::Perspective(kPerspectiveFovDegrees, aspect, kNearPlane, kFarPlane);
-    } else {
-        const float half_height = orthographic_half_height_;
-        const float half_width = half_height * aspect;
-
-        projection = Projection::Ortho(-half_width, half_width, -half_height, half_height, kNearPlane, kFarPlane);
+        return Projection::Perspective(kPerspectiveFovDegrees, aspect, kNearPlane, kFarPlane);
     }
 
-    const Matrix4 view_projection = AffineTransformation::Multiply4(projection, view);
+    const float half_height = orthographic_half_height_;
+    const float half_width = half_height * aspect;
 
+    return Projection::Ortho(-half_width, half_width, -half_height, half_height, kNearPlane, kFarPlane);
+}
+
+void SceneViewport::PrepareMainShader(int shadow_light_index) {
     shader_->Use();
 
     shader_->SetInt("uPointMode", 0);
@@ -1099,17 +1050,6 @@ void SceneViewport::paintGL() {
     shader_->SetFloat("uPointSoft", 0.05f);
     shader_->SetFloat("uDashFill", 1.0f);
 
-    /*
-     * Передаём в basic.frag все включённые Point Light.
-     *
-     * Каждый источник хранится внутри собственного SceneObject:
-     * - Position берётся из Transform;
-     * - Color / Intensity / Enabled берутся из PointLight.
-     *
-     * basic.frag поддерживает до kMaxPointLights источников одновременно.
-     * Лишние источники остаются объектами Scene, но в текущем кадре
-     * не участвуют в расчёте освещения.
-     */
     int point_light_count = 0;
 
     for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
@@ -1127,48 +1067,18 @@ void SceneViewport::paintGL() {
             break;
         }
 
-        const std::string uniform_prefix =
-            "uPointLights[" + std::to_string(point_light_count) + "]";
+        const std::string uniform_prefix = "uPointLights[" + std::to_string(point_light_count) + "]";
 
-        shader_->SetVec3(
-            uniform_prefix + ".position",
-            object->GetTransform().position
-        );
-
-        shader_->SetVec3(
-            uniform_prefix + ".color",
-            light->GetColor()
-        );
-
-        shader_->SetFloat(
-            uniform_prefix + ".intensity",
-            light->GetIntensity()
-        );
+        shader_->SetVec3(uniform_prefix + ".position", object->GetTransform().position);
+        shader_->SetVec3(uniform_prefix + ".color", light->GetColor());
+        shader_->SetFloat(uniform_prefix + ".intensity", light->GetIntensity());
 
         ++point_light_count;
     }
 
-    /*
-     * Shader обрабатывает только реально переданные источники.
-     * Disabled Point Light в этот счётчик не попадает.
-     */
-    shader_->SetInt(
-        "uPointLightCount",
-        point_light_count
-    );
+    shader_->SetInt("uPointLightCount", point_light_count);
+    shader_->SetVec3("uViewPosition", camera_.GetPosition());
 
-    shader_->SetVec3(
-        "uViewPosition",
-        camera_.GetPosition()
-    );
-
-    /*
-     * Shadow uniforms являются дополнением к обычным Point Light.
-     *
-     * Если basic.frag ещё не содержит эти uniforms,
-     * OpenGL вернёт location = -1 и текущий renderer
-     * продолжит работать как раньше.
-     */
     shader_->SetInt("uShadowLightIndex", shadow_light_index);
     shader_->SetFloat("uShadowFarPlane", kPointShadowFarPlane);
     shader_->SetInt("uPointShadowMap", 1);
@@ -1176,12 +1086,10 @@ void SceneViewport::paintGL() {
     if (shadow_light_index >= 0 && point_shadow_map_) {
         point_shadow_map_->BindTexture(1);
     }
+}
 
-    /*
-     * Grid и мировые оси не используют освещение
-     * и не должны использовать текстуру предыдущего объекта.
-     */
-    shader_->SetInt("uLightingEnabled",  0);
+void SceneViewport::RenderGridAndAxes(const Matrix4& view_projection) {
+    shader_->SetInt("uLightingEnabled", 0);
     shader_->SetInt("uHasDiffuseTexture", 0);
 
     if (grid_visible_ && grid_mesh_) {
@@ -1203,11 +1111,9 @@ void SceneViewport::paintGL() {
         shader_->SetVec4("uColor", Vec4{0.40f, 0.75f, 0.42f, 1.0f});
         renderer_.DrawLines(*axis_y_mesh_, *shader_, view_projection, 2.0f);
     }
+}
 
-    /*
-     * Всё, что находится в Scene, рисуется
-     * с освещением.
-     */
+void SceneViewport::RenderSceneObjects(const Matrix4& view, const Matrix4& projection) {
     shader_->SetInt("uLightingEnabled", lighting_enabled_ ? 1 : 0);
 
     for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
@@ -1215,48 +1121,24 @@ void SceneViewport::paintGL() {
             continue;
         }
 
-        /*
-         * Transform принадлежит всему SceneObject.
-         *
-         * Для импортированной модели это означает,
-         * что все её material parts используют
-         * одну Position / Rotation / Scale.
-         */
         const Matrix4 model = object->GetTransform().GetModelMatrix();
-
         shader_->SetMat4("uModel", model);
 
         const Matrix4 view_model = AffineTransformation::Multiply4(view, model);
-
         const Matrix4 mvp = AffineTransformation::Multiply4(projection, view_model);
 
-        /*
-         * Одна функция используется и для обычных
-         * объектов с одним Mesh, и для импортированной
-         * модели с несколькими RenderPart.
-         */
         const auto draw_part = [this, &object, &mvp](const Mesh& mesh, const Material& material) {
             Vec3 render_color = material.GetColor();
 
-            /*
-             * Немного подсвечиваем выбранный SceneObject.
-             *
-             * Если модель состоит из нескольких частей,
-             * подсветятся все её части.
-             */
             if (object == selected_object_) {
                 render_color.x = std::min(render_color.x + 0.15f, 1.0f);
                 render_color.y = std::min(render_color.y + 0.10f, 1.0f);
             }
 
-            shader_->SetVec4("uColor", Vec4{ render_color.x, render_color.y, render_color.z, 1.0f });
-
+            shader_->SetVec4("uColor", Vec4{render_color.x, render_color.y, render_color.z, 1.0f});
             shader_->SetFloat("uAmbientStrength", material.GetAmbientStrength());
-
             shader_->SetFloat("uDiffuseStrength", material.GetDiffuseStrength());
-
             shader_->SetFloat("uSpecularStrength", material.GetSpecularStrength());
-
             shader_->SetFloat("uShininess", material.GetShininess());
 
             if (material.HasDiffuseTexture()) {
@@ -1270,12 +1152,6 @@ void SceneViewport::paintGL() {
             renderer_.Draw(mesh, *shader_, mvp);
         };
 
-        /*
-         * Импортированная многоматериальная модель.
-         *
-         * SceneObject один, но внутри находится
-         * несколько Mesh + Material.
-         */
         if (object->HasRenderParts()) {
             for (const SceneObject::SceneRenderPart& part : object->GetRenderParts()) {
                 if (!part.mesh) {
@@ -1288,12 +1164,6 @@ void SceneViewport::paintGL() {
             continue;
         }
 
-        /*
-         * Старый вариант SceneObject.
-         *
-         * Он остаётся нужен для Cube, Plane, Sphere
-         * и других объектов с одним Mesh.
-         */
         const std::shared_ptr<const Mesh> mesh = object->GetMesh();
 
         if (mesh) {
@@ -1301,146 +1171,248 @@ void SceneViewport::paintGL() {
         }
     }
 
-    /*
-     * Дальше освещение basic shader уже не нужно.
-     */
     shader_->SetInt("uLightingEnabled", 0);
     shader_->SetInt("uHasDiffuseTexture", 0);
+}
 
-    /**
-     * @brief Рисует editor-маркеры всех PointLight в Scene.
-     *
-     * Маркер является только визуальным представлением
-     * источника света в Editor и не является Mesh
-     * самого SceneObject.
-     *
-     * Даже выключенный PointLight остаётся видимым:
-     * Enabled управляет освещением, а не существованием
-     * объекта в Editor.
-     */
-    if (light_shader_ && light_mesh_) {
-        light_shader_->Use();
-
-        for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
-            if (!object || !object->HasPointLight()) {
-                continue;
-            }
-
-            const PointLight* light = object->GetPointLight();
-
-            if (!light) {
-                continue;
-            }
-
-            const Vec3& light_position = object->GetTransform().position;
-
-            const Matrix4 light_model =
-                AffineTransformation::Translation4(
-                    light_position.x,
-                    light_position.y,
-                    light_position.z
-                );
-
-            const Matrix4 light_view_model =
-                AffineTransformation::Multiply4(
-                    view,
-                    light_model
-                );
-
-            const Matrix4 light_mvp =
-                AffineTransformation::Multiply4(
-                    projection,
-                    light_view_model
-                );
-
-            light_shader_->SetVec3(
-                "uLightColor",
-                light->GetColor()
-            );
-
-            renderer_.Draw(
-                *light_mesh_,
-                *light_shader_,
-                light_mvp
-            );
-        }
+void SceneViewport::RenderPointLightMarkers(const Matrix4& view, const Matrix4& projection) {
+    if (!light_shader_ || !light_mesh_) {
+        return;
     }
 
-    /*
-     * После lamp shader возвращаем основной shader,
-     * потому что Gizmo рисуется через него.
-     */
+    light_shader_->Use();
+
+    for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
+        if (!object || !object->HasPointLight()) {
+            continue;
+        }
+
+        const PointLight* light = object->GetPointLight();
+
+        if (!light) {
+            continue;
+        }
+
+        const Vec3& light_position = object->GetTransform().position;
+        const Matrix4 light_model = AffineTransformation::Translation4(light_position.x, light_position.y, light_position.z);
+        const Matrix4 light_view_model = AffineTransformation::Multiply4(view, light_model);
+        const Matrix4 light_mvp = AffineTransformation::Multiply4(projection, light_view_model);
+
+        light_shader_->SetVec3("uLightColor", light->GetColor());
+        renderer_.Draw(*light_mesh_, *light_shader_, light_mvp);
+    }
+}
+
+void SceneViewport::RenderTransformGizmo(const Matrix4& view, const Matrix4& projection) {
     shader_->Use();
     shader_->SetInt("uLightingEnabled", 0);
     shader_->SetInt("uHasDiffuseTexture", 0);
 
-    /*
-     * Transform Gizmo.
-     */
-    if (gizmo_visible_ && selected_object_) {
-        const Transform& selected_transform = selected_object_->GetTransform();
-        const Vec3 gizmo_position = selected_transform.position;
+    if (!gizmo_visible_ || !selected_object_) {
+        return;
+    }
 
-        /*
-         * Move и Rotate Gizmo пока отображаются в World Space.
-         *
-         * Scale Gizmo работает в Local Space:
-         * если SceneObject уже повёрнут, оси масштабирования
-         * должны повторять его Rotation, а не оставаться
-         * направленными по глобальным X / Y / Z.
-         *
-         * Текущий Scale объекта на размер самого Gizmo
-         * намеренно не влияет.
-         */
-        Matrix4 gizmo_model = AffineTransformation::Translation4(
-            gizmo_position.x,
-            gizmo_position.y,
-            gizmo_position.z
-        );
+    const Transform& selected_transform = selected_object_->GetTransform();
+    const Vec3 gizmo_position = selected_transform.position;
 
-        if (gizmo_mode_ == GizmoMode::Scale) {
-            Transform scale_gizmo_transform = selected_transform;
-            scale_gizmo_transform.scale = Vec3{1.0f, 1.0f, 1.0f};
-            gizmo_model = scale_gizmo_transform.GetModelMatrix();
+    Matrix4 gizmo_model = AffineTransformation::Translation4(gizmo_position.x, gizmo_position.y, gizmo_position.z);
+
+    if (gizmo_mode_ == GizmoMode::Scale) {
+        Transform scale_gizmo_transform = selected_transform;
+        scale_gizmo_transform.scale = Vec3{1.0f, 1.0f, 1.0f};
+        gizmo_model = scale_gizmo_transform.GetModelMatrix();
+    }
+
+    const Matrix4 gizmo_view_model = AffineTransformation::Multiply4(view, gizmo_model);
+    const Matrix4 gizmo_mvp = AffineTransformation::Multiply4(projection, gizmo_view_model);
+
+    const auto draw_gizmo_part = [this, &gizmo_mvp](const Mesh& mesh, const Vec4& color, float width) {
+        shader_->SetVec4("uColor", color);
+        renderer_.DrawLines(mesh, *shader_, gizmo_mvp, width);
+    };
+
+    if (gizmo_mode_ == GizmoMode::Rotate) {
+        if (rotate_gizmo_x_mesh_) {
+            draw_gizmo_part(*rotate_gizmo_x_mesh_, Vec4{0.95f, 0.25f, 0.25f, 1.0f}, 4.0f);
         }
 
-        const Matrix4 gizmo_view_model = AffineTransformation::Multiply4(view, gizmo_model);
-        const Matrix4 gizmo_mvp = AffineTransformation::Multiply4(projection, gizmo_view_model);
+        if (rotate_gizmo_y_mesh_) {
+            draw_gizmo_part(*rotate_gizmo_y_mesh_, Vec4{0.30f, 0.90f, 0.35f, 1.0f}, 4.0f);
+        }
 
-        const auto draw_gizmo_part = [this, &gizmo_mvp](const Mesh& mesh, const Vec4& color, float width) {
-            shader_->SetVec4("uColor", color);
-            renderer_.DrawLines(mesh, *shader_, gizmo_mvp, width);
-        };
+        if (rotate_gizmo_z_mesh_) {
+            draw_gizmo_part(*rotate_gizmo_z_mesh_, Vec4{0.25f, 0.50f, 1.0f, 1.0f}, 4.0f);
+        }
 
-        if (gizmo_mode_ == GizmoMode::Rotate) {
-            if (rotate_gizmo_x_mesh_) {
-                draw_gizmo_part(*rotate_gizmo_x_mesh_, Vec4{0.95f, 0.25f, 0.25f, 1.0f}, 4.0f);
-            }
+        return;
+    }
 
-            if (rotate_gizmo_y_mesh_) {
-                draw_gizmo_part(*rotate_gizmo_y_mesh_, Vec4{0.30f, 0.90f, 0.35f, 1.0f}, 4.0f);
-            }
+    const float line_width = gizmo_mode_ == GizmoMode::Scale ? 6.0f : 4.0f;
 
-            if (rotate_gizmo_z_mesh_) {
-                draw_gizmo_part(*rotate_gizmo_z_mesh_, Vec4{0.25f, 0.50f, 1.0f, 1.0f}, 4.0f);
-            }
+    if (gizmo_x_mesh_) {
+        draw_gizmo_part(*gizmo_x_mesh_, Vec4{0.95f, 0.25f, 0.25f, 1.0f}, line_width);
+    }
+
+    if (gizmo_y_mesh_) {
+        draw_gizmo_part(*gizmo_y_mesh_, Vec4{0.30f, 0.90f, 0.35f, 1.0f}, line_width);
+    }
+
+    if (gizmo_z_mesh_) {
+        draw_gizmo_part(*gizmo_z_mesh_, Vec4{0.25f, 0.50f, 1.0f, 1.0f}, line_width);
+    }
+}
+
+void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time_point& frame_start, const std::chrono::steady_clock::time_point& update_start, const std::chrono::steady_clock::time_point& update_end, const std::chrono::steady_clock::time_point& render_start, const std::chrono::steady_clock::time_point& frame_end) {
+    if (!test_running_ || !performance_stats_callback_) {
+        return;
+    }
+
+    const double update_ms = std::chrono::duration<double, std::milli>(update_end - update_start).count();
+    const double render_ms = std::chrono::duration<double, std::milli>(frame_end - render_start).count();
+    const double frame_ms = std::chrono::duration<double, std::milli>(frame_end - frame_start).count();
+
+    PerformanceStats stats;
+    stats.object_count = scene_.GetObjects().size();
+    stats.worker_count = execution_mode_ == ExecutionMode::SingleThreaded ? 1 : 0;
+    stats.update_ms = update_ms;
+    stats.render_ms = render_ms;
+    stats.frame_ms = frame_ms;
+    stats.fps = frame_ms > 0.0 ? 1000.0 / frame_ms : 0.0;
+
+    performance_accumulator_ += frame_ms;
+
+    if (performance_accumulator_ >= 250.0) {
+        performance_stats_callback_(stats);
+        performance_accumulator_ = 0.0;
+    }
+}
+
+void SceneViewport::paintGL() {
+    if (!shader_) {
+        return;
+    }
+
+    const auto frame_start = std::chrono::steady_clock::now();
+    const float delta_time = CalculateFrameDeltaTime(frame_start);
+
+    const auto update_start = std::chrono::steady_clock::now();
+    scene_update_system_.Update(scene_, delta_time, execution_mode_);
+    const auto update_end = std::chrono::steady_clock::now();
+
+    const auto render_start = std::chrono::steady_clock::now();
+
+    const int shadow_light_index = RenderPointShadowMap();
+
+    renderer_.BeginFrame(background_color_);
+
+    const Matrix4 view = camera_.GetViewMatrix();
+    const Matrix4 projection = CreateProjectionMatrix();
+    const Matrix4 view_projection = AffineTransformation::Multiply4(projection, view);
+
+    PrepareMainShader(shadow_light_index);
+    RenderGridAndAxes(view_projection);
+    RenderSceneObjects(view, projection);
+    RenderPointLightMarkers(view, projection);
+    RenderTransformGizmo(view, projection);
+
+    const auto frame_end = std::chrono::steady_clock::now();
+    UpdatePerformanceStats(frame_start, update_start, update_end, render_start, frame_end);
+}
+
+bool SceneViewport::StartTest(TestScene test_scene, ExecutionMode execution_mode) {
+    if (!gl_initialized_ || test_running_) {
+        return false;
+    }
+
+    if (execution_mode == ExecutionMode::MultiThreaded) {
+        return false;
+    }
+
+    makeCurrent();
+
+    scene_before_test_.emplace(std::move(scene_));
+    scene_ = Scene{};
+    selected_object_.reset();
+
+    switch (test_scene) {
+        case TestScene::Cube1k: {
+            const ImportedMeshData cube_data = PrimitiveGenerator::CreateCube();
+            std::shared_ptr<Mesh> cube_mesh = std::make_shared<Mesh>(cube_data);
+            Cube1kTest::Create(scene_, cube_mesh);
+            break;
+        }
+
+        default:
+            scene_ = std::move(scene_before_test_.value());
+            scene_before_test_.reset();
+            doneCurrent();
+            return false;
+    }
+
+    doneCurrent();
+
+    execution_mode_ = execution_mode;
+    test_running_ = true;
+    first_frame_ = true;
+    previous_frame_time_ = {};
+    performance_accumulator_ = 0.0;
+
+    if (content_label_) {
+        content_label_->hide();
+    }
+
+    UpdateProjectionTitle();
+    UpdateCoordinatesLabel();
+    NotifySelectionChanged();
+    setFocus();
+    update();
+
+    return true;
+}
+
+void SceneViewport::StopTest() {
+    if (!test_running_) {
+        return;
+    }
+
+    makeCurrent();
+    scene_.Clear();
+    doneCurrent();
+
+    if (scene_before_test_.has_value()) {
+        scene_ = std::move(scene_before_test_.value());
+        scene_before_test_.reset();
+    }
+
+    selected_object_.reset();
+    execution_mode_ = ExecutionMode::SingleThreaded;
+    test_running_ = false;
+    first_frame_ = true;
+    previous_frame_time_ = {};
+    performance_accumulator_ = 0.0;
+
+    if (content_label_) {
+        if (scene_.GetObjects().empty()) {
+            content_label_->show();
+            content_label_->setText("Scene is empty");
         } else {
-            const float line_width = gizmo_mode_ == GizmoMode::Scale ? 6.0f : 4.0f;
-
-            if (gizmo_x_mesh_) {
-                draw_gizmo_part(*gizmo_x_mesh_, Vec4{0.95f, 0.25f, 0.25f, 1.0f}, line_width);
-            }
-
-            if (gizmo_y_mesh_) {
-                draw_gizmo_part(*gizmo_y_mesh_, Vec4{0.30f, 0.90f, 0.35f, 1.0f}, line_width);
-            }
-
-            if (gizmo_z_mesh_) {
-                draw_gizmo_part(*gizmo_z_mesh_, Vec4{0.25f, 0.50f, 1.0f, 1.0f}, line_width);
-            }
+            content_label_->hide();
         }
     }
 
+    UpdateProjectionTitle();
+    UpdateCoordinatesLabel();
+    NotifySelectionChanged();
+    setFocus();
+    update();
+}
+
+bool SceneViewport::IsTestRunning() const {
+    return test_running_;
+}
+
+void SceneViewport::SetPerformanceStatsCallback(PerformanceStatsCallback callback) {
+    performance_stats_callback_ = std::move(callback);
 }
 
 void SceneViewport::SetDisplayedFile(const QString& file_path) {
@@ -1789,13 +1761,14 @@ void SceneViewport::ApplyModelFit(const std::vector<std::shared_ptr<SceneObject>
  * а этот метод выполняет фактическое перемещение Camera.
  */
 void SceneViewport::TickInput() {
-    float delta_time = static_cast<float>(input_clock_.restart()) / 1000.0f;
+    if (!hasFocus() || !window()->isActiveWindow()) {
+        ResetInputState();
+        input_clock_.restart();
+        return;
+    }
 
-    /*
-     * Не позволяем большому delta time телепортировать Camera,
-     * например после остановки приложения debugger'ом.
-     */
-    delta_time = std::min(delta_time, 0.05f);
+    float delta_time = static_cast<float>(input_clock_.restart()) / 1000.0f;
+    delta_time = std::min(delta_time, 0.033f);
 
     constexpr float move_speed = 2.0f;
     const float distance = move_speed * delta_time;
@@ -2043,8 +2016,7 @@ Ray SceneViewport::CreateMouseRay(const QPointF& mouse_position) const {
             right.z *
                 ndc_x *
                 half_width +
-            up.z *
-                ndc_y *
+            up.z *ndc_y *
                 half_height
     };
 
@@ -3043,8 +3015,7 @@ void SceneViewport::ClearScene() {
     pending_model_path_.clear();
     current_file_path_.clear();
 
-    UpdateProjectionTitle();
-    UpdateCoordinatesLabel();
+    UpdateProjectionTitle();UpdateCoordinatesLabel();
     NotifySelectionChanged();
 
     if (content_label_) {
@@ -3194,131 +3165,4 @@ void SceneViewport::CreatePointLightObject(bool select_object) {
     UpdateProjectionTitle();
 
     update();
-}
-
-bool SceneViewport::StartTest(TestScene test_scene, ExecutionMode execution_mode) {
-    if (!gl_initialized_) {
-        return false;
-    }
-
-    if (test_running_) {
-        return false;
-    }
-
-    /*
-     * Реальный MultiThreaded путь мы ещё не написали.
-     *
-     * Не притворяемся, что он уже существует.
-     */
-    if (execution_mode == ExecutionMode::MultiThreaded) {
-        return false;
-    }
-
-    makeCurrent();
-
-    /*
-     * Сохраняем обычную пользовательскую Scene.
-     *
-     * После Stop Test она будет восстановлена.
-     */
-    scene_before_test_.emplace(std::move(scene_));
-
-    scene_ = Scene{};
-
-    selected_object_.reset();
-
-    switch (test_scene) {
-        case TestScene::Cube1k: {
-            const ImportedMeshData cube_data = PrimitiveGenerator::CreateCube();
-
-            std::shared_ptr<Mesh> cube_mesh = std::make_shared<Mesh>(cube_data);
-
-            Cube1kTest::Create(scene_, cube_mesh);
-
-            break;
-        }
-
-        default: {
-            scene_ = std::move(scene_before_test_.value());
-            scene_before_test_.reset();
-
-            doneCurrent();
-
-            return false;
-        }
-    }
-
-    doneCurrent();
-
-    execution_mode_ = execution_mode;
-
-    test_running_ = true;
-
-    /*
-     * Следующий paintGL будет первым кадром benchmark.
-     */
-    first_frame_ = true;
-
-    if (content_label_) {
-        content_label_->hide();
-    }
-
-    UpdateProjectionTitle();
-    UpdateCoordinatesLabel();
-    NotifySelectionChanged();
-
-    update();
-
-    return true;
-}
-
-void SceneViewport::StopTest() {
-    if (!test_running_) {
-        return;
-    }
-
-    /*
-     * GPU Mesh тестовой сцены необходимо удалить,
-     * пока OpenGL context активен.
-     */
-    makeCurrent();
-
-    scene_.Clear();
-
-    doneCurrent();
-
-    /*
-     * Возвращаем пользовательскую Scene.
-     */
-    if (scene_before_test_.has_value()) {
-        scene_ = std::move(scene_before_test_.value());
-        scene_before_test_.reset();
-    }
-
-    selected_object_.reset();
-
-    execution_mode_ = ExecutionMode::SingleThreaded;
-
-    test_running_ = false;
-
-    first_frame_ = true;
-
-    if (content_label_) {
-        if (scene_.GetObjects().empty()) {
-            content_label_->show();
-            content_label_->setText("Scene is empty");
-        } else {
-            content_label_->hide();
-        }
-    }
-
-    UpdateProjectionTitle();
-    UpdateCoordinatesLabel();
-    NotifySelectionChanged();
-
-    update();
-}
-
-bool SceneViewport::IsTestRunning() const {
-    return test_running_;
 }

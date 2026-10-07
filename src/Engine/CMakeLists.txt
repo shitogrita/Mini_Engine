@@ -72,7 +72,7 @@ add_library(
         Tests/Cube1kTest.h
         Tests/Cube1kTest.cpp
 
-
+        Diagnostics/PerformanceStats.h
 
         ThirdParty/stb/stb_image.h
 )

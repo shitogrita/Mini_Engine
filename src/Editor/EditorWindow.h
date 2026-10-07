@@ -23,7 +23,6 @@ private:
 	void CreateStatusBar();
 	void ConfigureWindow();
 	void ApplyEditorStyle();
-	void CreateToolBar();
 
 	void OpenModelFile();
 	void SaveScene();
