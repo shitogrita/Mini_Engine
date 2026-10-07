@@ -1320,42 +1320,55 @@ void SceneViewport::paintGL() {
 }
 
 bool SceneViewport::StartTest(TestScene test_scene, ExecutionMode execution_mode) {
-    if (!gl_initialized_ || test_running_) {
+    if (!gl_initialized_) {
         return false;
     }
 
-    if (execution_mode == ExecutionMode::MultiThreaded) {
+    if (test_running_) {
         return false;
     }
 
     makeCurrent();
 
+    /*
+     * Сохраняем обычную пользовательскую Scene.
+     *
+     * После Stop Test она будет восстановлена.
+     */
     scene_before_test_.emplace(std::move(scene_));
+
     scene_ = Scene{};
+
     selected_object_.reset();
 
     switch (test_scene) {
         case TestScene::Cube1k: {
             const ImportedMeshData cube_data = PrimitiveGenerator::CreateCube();
+
             std::shared_ptr<Mesh> cube_mesh = std::make_shared<Mesh>(cube_data);
+
             Cube1kTest::Create(scene_, cube_mesh);
+
             break;
         }
 
-        default:
+        default: {
             scene_ = std::move(scene_before_test_.value());
             scene_before_test_.reset();
+
             doneCurrent();
+
             return false;
+        }
     }
 
     doneCurrent();
 
     execution_mode_ = execution_mode;
+
     test_running_ = true;
+
     first_frame_ = true;
-    previous_frame_time_ = {};
-    performance_accumulator_ = 0.0;
 
     if (content_label_) {
         content_label_->hide();
@@ -1364,7 +1377,7 @@ bool SceneViewport::StartTest(TestScene test_scene, ExecutionMode execution_mode
     UpdateProjectionTitle();
     UpdateCoordinatesLabel();
     NotifySelectionChanged();
-    setFocus();
+
     update();
 
     return true;

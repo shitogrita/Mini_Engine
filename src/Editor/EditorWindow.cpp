@@ -503,15 +503,32 @@ void EditorWindow::ShowTestsDialog() {
                  * MultiThread пока специально не запускаем:
                  * настоящий ThreadPool будет следующим этапом.
                  */
-                if (execution_mode == ExecutionMode::MultiThreaded) {
-                    QMessageBox::information(
+                    tests_dialog_->SetRunTestCallback(
+            [this](TestScene test_scene, ExecutionMode execution_mode) {
+                const bool started = scene_viewport_->StartTest(test_scene, execution_mode);
+
+                if (!started) {
+                    QMessageBox::warning(
                         this,
-                        "Multi Thread",
-                        "Multi Thread mode will be enabled after ThreadPool implementation."
+                        "Tests",
+                        "Failed to start test."
                     );
 
                     return;
                 }
+
+                hierarchy_panel_->Refresh();
+                hierarchy_panel_->SetSelectedObject(nullptr);
+                inspector_panel_->ClearSelection();
+
+                tests_dialog_->SetRunning(true);
+
+                statusBar()->showMessage(
+                    "1k Cube test started",
+                    2000
+                );
+            }
+        );
 
                 const bool started = scene_viewport_->StartTest(test_scene, execution_mode);
 

@@ -68,9 +68,14 @@ add_library(
         Scene/SceneUpdateSystem.h
         Scene/MotionState.h
 
+        Jobs/ThreadPool.cpp
+        Jobs/ThreadPool.h
+
         Tests/TestScene.h
         Tests/Cube1kTest.h
         Tests/Cube1kTest.cpp
+        Tests/ThreadPoolTest100.h
+        Tests/ThreadPoolTest100.cpp
 
         Diagnostics/PerformanceStats.h
 
