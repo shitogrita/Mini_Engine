@@ -497,39 +497,9 @@ void EditorWindow::ShowTestsDialog() {
                 );
             }
         );
+
         tests_dialog_->SetRunTestCallback(
             [this](TestScene test_scene, ExecutionMode execution_mode) {
-                /*
-                 * MultiThread пока специально не запускаем:
-                 * настоящий ThreadPool будет следующим этапом.
-                 */
-                    tests_dialog_->SetRunTestCallback(
-            [this](TestScene test_scene, ExecutionMode execution_mode) {
-                const bool started = scene_viewport_->StartTest(test_scene, execution_mode);
-
-                if (!started) {
-                    QMessageBox::warning(
-                        this,
-                        "Tests",
-                        "Failed to start test."
-                    );
-
-                    return;
-                }
-
-                hierarchy_panel_->Refresh();
-                hierarchy_panel_->SetSelectedObject(nullptr);
-                inspector_panel_->ClearSelection();
-
-                tests_dialog_->SetRunning(true);
-
-                statusBar()->showMessage(
-                    "1k Cube test started",
-                    2000
-                );
-            }
-        );
-
                 const bool started = scene_viewport_->StartTest(test_scene, execution_mode);
 
                 if (!started) {

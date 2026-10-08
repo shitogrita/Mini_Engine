@@ -41,6 +41,8 @@ public:
      */
     void Update(Scene& scene, float delta_time, ExecutionMode mode);
 
+    std::size_t GetWorkerCount() const;
+
 private:
     /**
      * @brief Обновляет состояние одного объекта сцены.

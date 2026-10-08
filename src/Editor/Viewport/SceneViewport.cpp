@@ -1273,7 +1273,10 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
 
     PerformanceStats stats;
     stats.object_count = scene_.GetObjects().size();
-    stats.worker_count = execution_mode_ == ExecutionMode::SingleThreaded ? 1 : 0;
+    stats.worker_count =
+    execution_mode_ == ExecutionMode::SingleThreaded
+        ? 1
+        : scene_update_system_.GetWorkerCount();
     stats.update_ms = update_ms;
     stats.render_ms = render_ms;
     stats.frame_ms = frame_ms;

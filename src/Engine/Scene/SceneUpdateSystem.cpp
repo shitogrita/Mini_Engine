@@ -222,3 +222,7 @@ void SceneUpdateSystem::UpdateMultiThreaded(Scene& scene, float delta_time) {
      */
     thread_pool_.WaitIdle();
 }
+
+std::size_t SceneUpdateSystem::GetWorkerCount() const {
+    return thread_pool_.GetWorkerCount();
+}
