@@ -299,5 +299,22 @@ private:
 
     PerformanceStatsCallback performance_stats_callback_;
     std::chrono::steady_clock::time_point previous_frame_time_{};
-    double performance_accumulator_ = 0.0;
+
+
+    double performance_elapsed_ms_ = 0.0;
+
+    double performance_update_sum_ms_ = 0.0;
+    double performance_render_sum_ms_ = 0.0;
+    double performance_frame_sum_ms_ = 0.0;
+
+    std::size_t performance_sample_count_ = 0;
+
+    double benchmark_warmup_elapsed_ms_ = 0.0;
+    double benchmark_measurement_elapsed_ms_ = 0.0;
+
+    bool benchmark_measuring_ = false;
+    bool benchmark_finished_ = false;
+
+    static constexpr double kBenchmarkWarmupMs = 2000.0;
+    static constexpr double kBenchmarkMeasurementMs = 5000.0;
 };

@@ -1372,27 +1372,183 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         return;
     }
 
-    const double update_ms = std::chrono::duration<double, std::milli>(update_end - update_start).count();
-    const double render_ms = std::chrono::duration<double, std::milli>(frame_end - render_start).count();
-    const double frame_ms = std::chrono::duration<double, std::milli>(frame_end - frame_start).count();
+    /**
+     * Время CPU Update текущего кадра.
+     *
+     * Сюда входит SceneUpdateSystem:
+     *
+     * SingleThreaded:
+     * последовательный обход объектов.
+     *
+     * MultiThreaded:
+     * Enqueue задач + выполнение workers + WaitIdle().
+     */
+    const double update_ms =
+        std::chrono::duration<double, std::milli>(
+            update_end - update_start
+        ).count();
+
+    /**
+     * Время Render текущего кадра.
+     *
+     * Считается от начала Render Pass до завершения
+     * всей отрисовки кадра.
+     */
+    const double render_ms =
+        std::chrono::duration<double, std::milli>(
+            frame_end - render_start
+        ).count();
+
+    /**
+     * Полное время кадра.
+     *
+     * Включает:
+     *
+     * CPU Update
+     * +
+     * Render.
+     */
+    const double frame_ms =
+        std::chrono::duration<double, std::milli>(
+            frame_end - frame_start
+        ).count();
+
+    if (benchmark_finished_) {
+        return;
+    }
+
+    if (!benchmark_measuring_) {
+        benchmark_warmup_elapsed_ms_ += frame_ms;
+
+        if (benchmark_warmup_elapsed_ms_ < kBenchmarkWarmupMs) {
+            return;
+        }
+
+        benchmark_measuring_ = true;
+
+        benchmark_measurement_elapsed_ms_ = 0.0;
+
+        performance_elapsed_ms_ = 0.0;
+
+        performance_update_sum_ms_ = 0.0;
+        performance_render_sum_ms_ = 0.0;
+        performance_frame_sum_ms_ = 0.0;
+
+        performance_sample_count_ = 0;
+
+        return;
+    }
+
+    /**
+     * Добавляем результаты текущего кадра
+     * в накопители benchmark.
+     */
+    performance_update_sum_ms_ += update_ms;
+    performance_render_sum_ms_ += render_ms;
+    performance_frame_sum_ms_ += frame_ms;
+
+    performance_elapsed_ms_ += frame_ms;
+    benchmark_measurement_elapsed_ms_ += frame_ms;
+
+    ++performance_sample_count_;
+
+    /**
+     * Не обновляем UI каждый кадр.
+     *
+     * Сначала накапливаем примерно одну секунду измерений.
+     * Благодаря этому отображаемое значение значительно стабильнее,
+     * чем время одного случайного кадра.
+     */
+    if (benchmark_measurement_elapsed_ms_ < kBenchmarkMeasurementMs) {
+        return;
+    }
+
+    /**
+     * Защитная проверка.
+     *
+     * Теоретически сюда невозможно попасть с нулевым количеством
+     * samples, но проверка делает функцию устойчивее.
+     */
+    if (performance_sample_count_ == 0) {
+        return;
+    }
+
+    const double sample_count =
+        static_cast<double>(performance_sample_count_);
+
+    /**
+     * Среднее время CPU Update за измерительное окно.
+     */
+    const double average_update_ms =
+        performance_update_sum_ms_ / sample_count;
+
+    /**
+     * Среднее время Render.
+     */
+    const double average_render_ms =
+        performance_render_sum_ms_ / sample_count;
+
+    /**
+     * Среднее полное время кадра.
+     */
+    const double average_frame_ms =
+        performance_frame_sum_ms_ / sample_count;
+
+    /**
+     * FPS лучше вычислять по фактически прошедшему времени,
+     * а не просто как 1000 / average_frame_ms.
+     *
+     * Формула:
+     *
+     * frames / seconds
+     *
+     * performance_elapsed_ms_ хранится в миллисекундах,
+     * поэтому умножаем число кадров на 1000.
+     */
+    const double average_fps =
+        performance_elapsed_ms_ > 0.0
+            ? sample_count * 1000.0 / performance_elapsed_ms_
+            : 0.0;
 
     PerformanceStats stats;
-    stats.object_count = scene_.GetObjects().size();
+
+    stats.object_count =
+        scene_.GetObjects().size();
+
+    /**
+     * Для SingleThreaded работа выполняется одним потоком.
+     *
+     * Для MultiThreaded показываем реальное количество
+     * worker-потоков ThreadPool.
+     */
     stats.worker_count =
-    execution_mode_ == ExecutionMode::SingleThreaded
-        ? 1
-        : scene_update_system_.GetWorkerCount();
-    stats.update_ms = update_ms;
-    stats.render_ms = render_ms;
-    stats.frame_ms = frame_ms;
-    stats.fps = frame_ms > 0.0 ? 1000.0 / frame_ms : 0.0;
+        execution_mode_ == ExecutionMode::SingleThreaded
+            ? 1
+            : scene_update_system_.GetWorkerCount();
 
-    performance_accumulator_ += frame_ms;
+    stats.update_ms = average_update_ms;
+    stats.render_ms = average_render_ms;
+    stats.frame_ms = average_frame_ms;
+    stats.fps = average_fps;
 
-    if (performance_accumulator_ >= 250.0) {
-        performance_stats_callback_(stats);
-        performance_accumulator_ = 0.0;
-    }
+    /**
+     * Передаём усреднённые данные в TestsDialog.
+     */
+    performance_stats_callback_(stats);
+
+    benchmark_finished_ = true;
+    benchmark_measuring_ = false;
+
+    /**
+     * Начинаем новое измерительное окно.
+     */
+    performance_elapsed_ms_ = 0.0;
+
+    performance_update_sum_ms_ = 0.0;
+    performance_render_sum_ms_ = 0.0;
+    performance_frame_sum_ms_ = 0.0;
+
+    performance_sample_count_ = 0;
 }
 
 void SceneViewport::paintGL() {
@@ -1520,9 +1676,21 @@ bool SceneViewport::StartTest(TestScene test_scene, ExecutionMode execution_mode
 
     first_frame_ = true;
 
-    previous_frame_time_ = {};
+    performance_elapsed_ms_ = 0.0;
 
-    performance_accumulator_ = 0.0;
+    benchmark_warmup_elapsed_ms_ = 0.0;
+    benchmark_measurement_elapsed_ms_ = 0.0;
+
+    benchmark_measuring_ = false;
+    benchmark_finished_ = false;
+
+    performance_update_sum_ms_ = 0.0;
+    performance_render_sum_ms_ = 0.0;
+    performance_frame_sum_ms_ = 0.0;
+
+    performance_sample_count_ = 0;
+
+    previous_frame_time_ = {};
 
     if (content_label_) {
         content_label_->hide();
@@ -1554,9 +1722,17 @@ void SceneViewport::StopTest() {
     selected_object_.reset();
     execution_mode_ = ExecutionMode::SingleThreaded;
     test_running_ = false;
+
+    performance_elapsed_ms_ = 0.0;
+
+    performance_update_sum_ms_ = 0.0;
+    performance_render_sum_ms_ = 0.0;
+    performance_frame_sum_ms_ = 0.0;
+
+    performance_sample_count_ = 0;
+
     first_frame_ = true;
     previous_frame_time_ = {};
-    performance_accumulator_ = 0.0;
 
     if (content_label_) {
         if (scene_.GetObjects().empty()) {
