@@ -76,6 +76,8 @@ add_library(
         Tests/Cube1kTest.cpp
         Tests/ThreadPoolTest100.h
         Tests/ThreadPoolTest100.cpp
+        Tests/CubeStressTest.cpp
+        Tests/CubeStressTest.h
 
         Diagnostics/PerformanceStats.h
 

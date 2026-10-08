@@ -8,6 +8,7 @@
 #include "Engine/Renderer/PrimitiveGenerator.h"
 #include "Engine/Scene/SceneSerializer.h"
 #include "Engine/Tests/Cube1kTest.h"
+#include "Engine/Tests/CubeStressTest.h"
 
 #include <QByteArray>
 #include <QFileInfo>
@@ -1336,7 +1337,8 @@ bool SceneViewport::StartTest(TestScene test_scene, ExecutionMode execution_mode
     /*
      * Сохраняем обычную пользовательскую Scene.
      *
-     * После Stop Test она будет восстановлена.
+     * После завершения benchmark она будет восстановлена
+     * функцией StopTest().
      */
     scene_before_test_.emplace(std::move(scene_));
 
@@ -1344,34 +1346,79 @@ bool SceneViewport::StartTest(TestScene test_scene, ExecutionMode execution_mode
 
     selected_object_.reset();
 
+    /*
+     * Выбираем размер нагрузочной сцены.
+     *
+     * Важно, что все варианты используют один и тот же
+     * CubeStressTest. Меняется исключительно object_count.
+     *
+     * Это позволяет корректно сравнивать результаты
+     * при различном количестве объектов.
+     */
+    std::size_t object_count = 0;
+
     switch (test_scene) {
-        case TestScene::Cube1k: {
-            const ImportedMeshData cube_data = PrimitiveGenerator::CreateCube();
-
-            std::shared_ptr<Mesh> cube_mesh = std::make_shared<Mesh>(cube_data);
-
-            Cube1kTest::Create(scene_, cube_mesh);
-
+        case TestScene::Cube1k:
+            object_count = 1'000;
             break;
-        }
 
-        default: {
+        case TestScene::Cube10k:
+            object_count = 10'000;
+            break;
+
+        case TestScene::Cube25k:
+            object_count = 25'000;
+            break;
+
+        case TestScene::Cube50k:
+            object_count = 50'000;
+            break;
+
+        default:
             scene_ = std::move(scene_before_test_.value());
             scene_before_test_.reset();
 
             doneCurrent();
 
             return false;
-        }
     }
+
+    /*
+     * Геометрия Cube создаётся один раз.
+     *
+     * Все SceneObject теста разделяют этот Mesh через shared_ptr.
+     */
+    const ImportedMeshData cube_data =
+        PrimitiveGenerator::CreateCube();
+
+    std::shared_ptr<Mesh> cube_mesh =
+        std::make_shared<Mesh>(cube_data);
+
+    /*
+     * Создаём требуемое количество SceneObject.
+     */
+    CubeStressTest::Create(
+        scene_,
+        cube_mesh,
+        object_count
+    );
 
     doneCurrent();
 
+    /*
+     * Запоминаем режим выполнения.
+     *
+     * Далее paintGL() передаст его SceneUpdateSystem.
+     */
     execution_mode_ = execution_mode;
 
     test_running_ = true;
 
     first_frame_ = true;
+
+    previous_frame_time_ = {};
+
+    performance_accumulator_ = 0.0;
 
     if (content_label_) {
         content_label_->hide();

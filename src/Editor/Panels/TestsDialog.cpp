@@ -177,14 +177,37 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     settings_layout->setVerticalSpacing(12);
     settings_layout->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
+    /*
+     * Нагрузочные сцены отличаются только количеством объектов.
+     *
+     * Все они используют одинаковую геометрию Cube и одинаковую
+     * логику обновления SceneUpdateSystem.
+     *
+     * Это позволяет корректно сравнивать SingleThreaded
+     * и MultiThreaded режимы при увеличении нагрузки.
+     */
     test_scene_combo_ = new QComboBox(settings_group);
-    test_scene_combo_->addItem("1k Cube");
 
+    test_scene_combo_->addItem("1 000 Cubes");
+    test_scene_combo_->addItem("10 000 Cubes");
+    test_scene_combo_->addItem("25 000 Cubes");
+    test_scene_combo_->addItem("50 000 Cubes");
+
+    /*
+     * Режим выполнения CPU Update.
+     *
+     * Single Thread:
+     * все объекты обновляются последовательно.
+     *
+     * Multi Thread:
+     * объекты разбиваются на chunks и передаются ThreadPool.
+     */
     execution_mode_combo_ = new QComboBox(settings_group);
+
     execution_mode_combo_->addItem("Single Thread");
     execution_mode_combo_->addItem("Multi Thread");
 
-    test_scene_combo_->setMinimumWidth(150);
+    test_scene_combo_->setMinimumWidth(180);
     execution_mode_combo_->setMinimumWidth(180);
 
     settings_layout->addRow("Test Scene:", test_scene_combo_);
@@ -203,6 +226,9 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     run_button_->setMinimumWidth(105);
     stop_button_->setMinimumWidth(80);
 
+    /*
+     * До запуска теста Stop недоступен.
+     */
     stop_button_->setEnabled(false);
 
     button_layout->addWidget(run_button_);
@@ -224,15 +250,29 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     performance_layout->setColumnStretch(0, 1);
     performance_layout->setColumnStretch(1, 1);
 
+    /*
+     * Создаёт левую подпись строки статистики:
+     *
+     * Objects:
+     * Workers:
+     * Update:
+     * ...
+     */
     auto create_name_label = [performance_group](const QString& text) {
         QLabel* label = new QLabel(text, performance_group);
+
         label->setObjectName("PerformanceName");
         label->setMinimumHeight(26);
         label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
         return label;
     };
 
+    /*
+     * Настраивает правую часть строки,
+     * где отображается числовое значение.
+     */
     auto configure_value_label = [](QLabel* label) {
         label->setObjectName("PerformanceValue");
         label->setMinimumHeight(26);
@@ -278,16 +318,35 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
 
     root_layout->addWidget(performance_group);
 
+    /*
+     * Закрытие окна Tests только скрывает его.
+     *
+     * Объект TestsDialog не уничтожается,
+     * поэтому при следующем открытии его можно переиспользовать.
+     */
     connect(close_button, &QPushButton::clicked, this, &QWidget::hide);
 
+    /*
+     * Run передаёт выбранные параметры теста наружу
+     * через callback.
+     *
+     * Сам TestsDialog не создаёт Scene и ничего не рендерит.
+     */
     connect(run_button_, &QPushButton::clicked, this, [this]() {
         if (!run_test_callback_) {
             return;
         }
 
-        run_test_callback_(GetSelectedTestScene(), GetSelectedExecutionMode());
+        run_test_callback_(
+            GetSelectedTestScene(),
+            GetSelectedExecutionMode()
+        );
     });
 
+    /*
+     * Stop сообщает EditorWindow,
+     * что текущий benchmark необходимо завершить.
+     */
     connect(stop_button_, &QPushButton::clicked, this, [this]() {
         if (!stop_test_callback_) {
             return;
@@ -307,12 +366,24 @@ void TestsDialog::SetStopTestCallback(std::function<void()> callback) {
 
 void TestsDialog::SetPerformanceStats(std::size_t object_count, std::size_t worker_count, double update_ms, double render_ms, double frame_ms, double fps) {
     objects_value_->setText(QString::number(object_count));
+
     workers_value_->setText(QString::number(worker_count));
 
-    update_value_->setText(QString::number(update_ms, 'f', 2) + " ms");
-    render_value_->setText(QString::number(render_ms, 'f', 2) + " ms");
-    frame_value_->setText(QString::number(frame_ms, 'f', 2) + " ms");
-    fps_value_->setText(QString::number(fps, 'f', 1));
+    update_value_->setText(
+        QString::number(update_ms, 'f', 2) + " ms"
+    );
+
+    render_value_->setText(
+        QString::number(render_ms, 'f', 2) + " ms"
+    );
+
+    frame_value_->setText(
+        QString::number(frame_ms, 'f', 2) + " ms"
+    );
+
+    fps_value_->setText(
+        QString::number(fps, 'f', 1)
+    );
 }
 
 void TestsDialog::ResetPerformanceStats() {
@@ -325,6 +396,13 @@ void TestsDialog::ResetPerformanceStats() {
 }
 
 void TestsDialog::SetRunning(bool running) {
+    /*
+     * Во время теста параметры блокируются.
+     *
+     * Иначе пользователь мог бы изменить Scene или ExecutionMode
+     * уже после запуска benchmark, и отображаемые параметры
+     * перестали бы соответствовать реально запущенному тесту.
+     */
     run_button_->setEnabled(!running);
     stop_button_->setEnabled(running);
 
@@ -333,12 +411,19 @@ void TestsDialog::SetRunning(bool running) {
 }
 
 void TestsDialog::mousePressEvent(QMouseEvent* event) {
+    /*
+     * TestsDialog frameless, поэтому стандартной title bar нет.
+     *
+     * Разрешаем перетаскивание окна мышью
+     * за верхнюю область высотой 42 пикселя.
+     */
     if (event->button() == Qt::LeftButton && event->position().y() <= 42.0) {
         if (windowHandle()) {
             windowHandle()->startSystemMove();
         }
 
         event->accept();
+
         return;
     }
 
@@ -346,14 +431,34 @@ void TestsDialog::mousePressEvent(QMouseEvent* event) {
 }
 
 TestScene TestsDialog::GetSelectedTestScene() const {
+    /*
+     * Индекс ComboBox преобразуется в TestScene.
+     *
+     * Порядок здесь должен совпадать с порядком addItem()
+     * в конструкторе.
+     */
     switch (test_scene_combo_->currentIndex()) {
         case 0:
+            return TestScene::Cube1k;
+
+        case 1:
+            return TestScene::Cube10k;
+
+        case 2:
+            return TestScene::Cube25k;
+
+        case 3:
+            return TestScene::Cube50k;
+
         default:
             return TestScene::Cube1k;
     }
 }
 
 ExecutionMode TestsDialog::GetSelectedExecutionMode() const {
+    /*
+     * Индекс ComboBox преобразуется в ExecutionMode.
+     */
     switch (execution_mode_combo_->currentIndex()) {
         case 1:
             return ExecutionMode::MultiThreaded;

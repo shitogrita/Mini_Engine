@@ -521,7 +521,7 @@ void EditorWindow::ShowTestsDialog() {
                 tests_dialog_->SetRunning(true);
 
                 statusBar()->showMessage(
-                    "1k Cube test started",
+                    "Stress test started",
                     2000
                 );
             }
