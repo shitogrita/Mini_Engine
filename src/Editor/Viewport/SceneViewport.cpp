@@ -498,49 +498,90 @@ void SceneViewport::CreateLayout() {
 }
 
 void SceneViewport::initializeGL() {
-    /*
+    /**
      * Загружаем OpenGL-функции
      * через текущий Qt OpenGL Context.
      */
     if (!InitializeOpenGLLoader(&GetQtOpenGLProcAddress)) {
-        throw std::runtime_error("Failed to initialize GLAD for Qt OpenGL context");
+        throw std::runtime_error(
+            "Failed to initialize GLAD for Qt OpenGL context"
+        );
     }
 
     renderer_.Initialize();
 
-    /*
-     * Загружаем основной Shader.
+    /**
+     * Каталог GLSL shaders.
      */
     const std::filesystem::path shader_directory =
         MINI_ENGINE_SHADER_DIR;
 
-    shader_ =
-        std::make_unique<Shader>(shader_directory / "basic.vert", shader_directory / "basic.frag");
-    light_shader_ = std::make_unique<Shader>(std::filesystem::path(MINI_ENGINE_SHADER_DIR) / "lamp.vert", std::filesystem::path(MINI_ENGINE_SHADER_DIR) / "lamp.frag");
-
-    light_mesh_ = std::make_unique<Mesh>(PrimitiveGenerator::CreateSphere(0.08f, 16, 8));
-
-    /*
-     * Shadow resources создаются отдельно от обычного освещения.
-     *
-     * Пока shadow shaders не добавлены в проект, этот блок
-     * просто пропускается и текущий multi-light renderer
-     * продолжает работать без изменений.
+    /**
+     * Основной shader сцены.
      */
-    const std::filesystem::path shadow_vertex_path = shader_directory / "point_shadow.vert";
-    const std::filesystem::path shadow_fragment_path = shader_directory / "point_shadow.frag";
+    shader_ = std::make_unique<Shader>(
+        shader_directory / "basic.vert",
+        shader_directory / "basic.frag"
+    );
 
-    if (std::filesystem::exists(shadow_vertex_path) && std::filesystem::exists(shadow_fragment_path)) {
-        shadow_shader_ = std::make_unique<Shader>(shadow_vertex_path, shadow_fragment_path);
-        point_shadow_map_ = std::make_unique<PointShadowMap>();
+    /**
+     * Shader для визуального маркера Point Light.
+     */
+    light_shader_ = std::make_unique<Shader>(
+        shader_directory / "lamp.vert",
+        shader_directory / "lamp.frag"
+    );
 
-        if (!point_shadow_map_->Initialize(kPointShadowResolution)) {
-            point_shadow_map_.reset();
-            shadow_shader_.reset();
-        }
+    light_mesh_ = std::make_unique<Mesh>(
+        PrimitiveGenerator::CreateSphere(
+            0.08f,
+            16,
+            8
+        )
+    );
+
+    /**
+     * Создание ресурсов Point Shadow Mapping.
+     *
+     * Shadow shaders являются обязательной частью Renderer.
+     * Если один из файлов отсутствует, инициализация
+     * завершается с понятной ошибкой.
+     */
+    const std::filesystem::path shadow_vertex_path =
+        shader_directory / "pointShadow.vert";
+
+    const std::filesystem::path shadow_fragment_path =
+        shader_directory / "pointShadow.frag";
+
+    if (!std::filesystem::exists(shadow_vertex_path)) {
+        throw std::runtime_error(
+            "Point shadow vertex shader not found: " +
+            shadow_vertex_path.string()
+        );
     }
 
-    /*
+    if (!std::filesystem::exists(shadow_fragment_path)) {
+        throw std::runtime_error(
+            "Point shadow fragment shader not found: " +
+            shadow_fragment_path.string()
+        );
+    }
+
+    shadow_shader_ = std::make_unique<Shader>(
+        shadow_vertex_path,
+        shadow_fragment_path
+    );
+
+    point_shadow_map_ =
+        std::make_unique<PointShadowMap>();
+
+    if (!point_shadow_map_->Initialize(kPointShadowResolution)) {
+        throw std::runtime_error(
+            "Failed to initialize Point Shadow Map"
+        );
+    }
+
+    /**
      * Editor helpers:
      *
      * - Grid;
@@ -550,15 +591,15 @@ void SceneViewport::initializeGL() {
      */
     CreateEditorGrid();
 
-    /*
-     * Transform helper выбранного объекта.
+    /**
+     * Transform helpers выбранного объекта.
      */
     CreateMoveGizmo();
     CreateRotateGizmo();
 
     gl_initialized_ = true;
 
-    /*
+    /**
      * Если OBJ был открыт ещё до создания
      * OpenGL Context, загружаем его сейчас.
      */
@@ -992,28 +1033,91 @@ int SceneViewport::RenderPointShadowMap() {
         static_cast<unsigned int>(defaultFramebufferObject())
     );
 
+
+    /*
+     * QOpenGLWidget работает с device-independent pixels,
+     * тогда как glViewport() принимает реальные пиксели framebuffer.
+     *
+     * На Retina devicePixelRatioF() обычно равен 2.0.
+     * Поэтому после Shadow Pass необходимо восстановить viewport
+     * в физических размерах framebuffer.
+     */
+    const qreal device_pixel_ratio = devicePixelRatioF();
+
+    const int framebuffer_width =
+        static_cast<int>(
+            static_cast<qreal>(width()) *
+            device_pixel_ratio
+        );
+
+    const int framebuffer_height =
+        static_cast<int>(
+            static_cast<qreal>(height()) *
+            device_pixel_ratio
+        );
+
     renderer_.SetViewport(
-        width(),
-        height()
+        framebuffer_width,
+        framebuffer_height
     );
 
     return shadow_light_index;
 }
 
 void SceneViewport::resizeGL(int width, int height) {
-    renderer_.SetViewport(width, height);
+    const qreal device_pixel_ratio =
+        devicePixelRatioF();
 
-    if (title_label_ != nullptr) {title_label_->setGeometry(0, 0, width, 34);
+    const int framebuffer_width =
+        static_cast<int>(
+            static_cast<qreal>(width) *
+            device_pixel_ratio
+        );
+
+    const int framebuffer_height =
+        static_cast<int>(
+            static_cast<qreal>(height) *
+            device_pixel_ratio
+        );
+
+    renderer_.SetViewport(
+        framebuffer_width,
+        framebuffer_height
+    );
+
+    if (title_label_ != nullptr) {
+        title_label_->setGeometry(
+            0,
+            0,
+            width,
+            34
+        );
     }
 
     if (content_label_ != nullptr) {
-        content_label_->setGeometry(0, 34, width, std::max(0, height - 34));
+        content_label_->setGeometry(
+            0,
+            34,
+            width,
+            std::max(
+                0,
+                height - 34
+            )
+        );
     }
 
     if (coordinates_label_ != nullptr) {
         coordinates_label_->adjustSize();
 
-        coordinates_label_->move(std::max(10, width - coordinates_label_->width() - 14), 48);
+        coordinates_label_->move(
+            std::max(
+                10,
+                width -
+                    coordinates_label_->width() -
+                    14
+            ),
+            48
+        );
     }
 }
 
