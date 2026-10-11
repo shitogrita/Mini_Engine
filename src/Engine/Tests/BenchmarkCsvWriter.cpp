@@ -1,21 +1,17 @@
 #include "Engine/Tests/BenchmarkCsvWriter.h"
 
 #include <chrono>
+#include <ctime>
 #include <fstream>
 #include <iomanip>
+#include <system_error>
 
-bool BenchmarkCsvWriter::Append(const std::filesystem::path& file_path, std::size_t object_count, ExecutionMode mode, std::size_t worker_count, double update_ms, double render_ms, double frame_ms, double fps, std::size_t sample_count) {
-    /*
-     * Проверяем, существует ли файл и содержит ли он данные.
-     *
-     * Если файл новый или пустой,
-     * перед первой записью добавляется CSV header.
-     */
+bool BenchmarkCsvWriter::Append(const std::filesystem::path& file_path, std::size_t run_index, std::size_t object_count, ExecutionMode mode, std::size_t worker_count, double update_ms, double render_ms, double frame_ms, double fps, std::size_t sample_count) {
     bool write_header = true;
 
-    if (std::filesystem::exists(file_path)) {
-        std::error_code error_code;
+    std::error_code error_code;
 
+    if (std::filesystem::exists(file_path, error_code) && !error_code) {
         const std::uintmax_t file_size =
             std::filesystem::file_size(
                 file_path,
@@ -39,6 +35,7 @@ bool BenchmarkCsvWriter::Append(const std::filesystem::path& file_path, std::siz
     if (write_header) {
         file
             << "timestamp,"
+            << "run,"
             << "objects,"
             << "mode,"
             << "workers,"
@@ -50,12 +47,6 @@ bool BenchmarkCsvWriter::Append(const std::filesystem::path& file_path, std::siz
             << '\n';
     }
 
-    /*
-     * Получаем время завершения benchmark.
-     *
-     * Оно позволит позже отличать разные запуски
-     * и повторные измерения одной конфигурации.
-     */
     const auto now =
         std::chrono::system_clock::now();
 
@@ -75,6 +66,8 @@ bool BenchmarkCsvWriter::Append(const std::filesystem::path& file_path, std::siz
     }
 
     file
+        << ','
+        << run_index
         << ','
         << object_count
         << ','

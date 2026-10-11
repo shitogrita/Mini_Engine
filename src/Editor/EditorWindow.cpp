@@ -8,6 +8,7 @@
 
 #include "Engine/Scene/SceneSerializer.h"
 
+#include <QDesktopServices>
 #include <QAction>
 #include <QDockWidget>
 #include <QFileDialog>
@@ -17,7 +18,9 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QStatusBar>
+#include <QUrl>
 
+#include <filesystem>
 #include <cstddef>
 #include <memory>
 #include <utility>
@@ -523,17 +526,65 @@ void EditorWindow::ShowTestsDialog() {
                     return;
                 }
 
-                tests_dialog_->SetRunning(false);
+                tests_dialog_->SetRunning(
+                    false
+                );
 
                 hierarchy_panel_->Refresh();
-                hierarchy_panel_->SetSelectedObject(nullptr);
+
+                hierarchy_panel_->SetSelectedObject(
+                    nullptr
+                );
 
                 inspector_panel_->ClearSelection();
 
+                /**
+                 * Полный путь к CSV,
+                 * который только что сформировал benchmark.
+                 */
+                const std::filesystem::path benchmark_file =
+                    std::filesystem::current_path() /
+                    "benchmark_full_results.csv";
+
+                if (!std::filesystem::exists(benchmark_file)) {
+                    statusBar()->showMessage(
+                        "Full benchmark finished, but CSV file was not found.",
+                        5000
+                    );
+
+                    return;
+                }
+
                 statusBar()->showMessage(
-                    "Full benchmark finished. Results saved to benchmark_full_results.csv",
+                    "Full benchmark finished. Opening benchmark_full_results.csv",
                     5000
                 );
+
+                /**
+                 * Открываем CSV системным приложением.
+                 *
+                 * macOS:
+                 * Numbers / Excel / другое приложение,
+                 * назначенное для .csv.
+                 */
+                const QString benchmark_file_path =
+                    QString::fromStdString(
+                        benchmark_file.string()
+                    );
+
+                const bool opened =
+                    QDesktopServices::openUrl(
+                        QUrl::fromLocalFile(
+                            benchmark_file_path
+                        )
+                    );
+
+                if (!opened) {
+                    statusBar()->showMessage(
+                        "Benchmark finished, but the CSV file could not be opened automatically.",
+                        5000
+                    );
+                }
             }
         );
 

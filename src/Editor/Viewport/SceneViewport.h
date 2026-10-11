@@ -218,6 +218,7 @@ private:
      * 4 workers
      */
     struct BenchmarkCase {
+        std::size_t run_index;
         TestScene test_scene;
         ExecutionMode execution_mode;
         std::size_t worker_count;
@@ -519,6 +520,9 @@ private:
      */
     double benchmark_measurement_elapsed_ms_ = 0.0;
 
+    std::chrono::steady_clock::time_point benchmark_warmup_start_time_{};
+    std::chrono::steady_clock::time_point benchmark_measurement_start_time_{};
+
     /**
      * @brief true после завершения warm-up.
      */
@@ -541,6 +545,8 @@ private:
      * @brief Продолжительность измерительного окна.
      */
     static constexpr double kBenchmarkMeasurementMs = 5000.0;
+
+    static constexpr std::size_t kBenchmarkRepeatCount = 3;
 
     /**
      * @brief Список всех тестов автоматического benchmark.

@@ -80,6 +80,8 @@ add_library(
         Tests/CubeStressTest.h
         Tests/BenchmarkCsvWriter.cpp
         Tests/BenchmarkCsvWriter.h
+        Tests/SceneUpdateCorrectnessTest.cpp
+        Tests/SceneUpdateCorrectnessTest.h
 
         Diagnostics/PerformanceStats.h
 
