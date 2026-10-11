@@ -8,39 +8,39 @@
 #include <cstddef>
 #include <functional>
 
-class QComboBox;
 class QLabel;
-class QMouseEvent;
 class QPushButton;
+class QComboBox;
+class QMouseEvent;
 
-/**
- * @brief Отдельное окно нагрузочных тестов Mini Engine.
- *
- * Окно не является DockWidget и не изменяет layout редактора.
- * Используется собственная тёмная верхняя панель вместо
- * стандартного белого title bar macOS.
- */
-class TestsDialog final : public QDialog {
+class TestsDialog : public QDialog {
 public:
 	explicit TestsDialog(QWidget* parent = nullptr);
 
-	void SetRunTestCallback(std::function<void(TestScene, ExecutionMode)> callback);
+	void SetRunTestCallback(std::function<void(TestScene, ExecutionMode, std::size_t)> callback);
 	void SetStopTestCallback(std::function<void()> callback);
 
 	void SetPerformanceStats(std::size_t object_count, std::size_t worker_count, double update_ms, double render_ms, double frame_ms, double fps);
 	void ResetPerformanceStats();
 	void SetRunning(bool running);
 
-protected:
-	void mousePressEvent(QMouseEvent* event) override;
+	void SetRunFullBenchmarkCallback(std::function<void()> callback);
+	void SetBenchmarkProgress(std::size_t current, std::size_t total);
 
 private:
 	TestScene GetSelectedTestScene() const;
 	ExecutionMode GetSelectedExecutionMode() const;
+	std::size_t GetSelectedWorkerCount() const;
+
+	void UpdateWorkerCountState();
+
+protected:
+	void mousePressEvent(QMouseEvent* event) override;
 
 private:
 	QComboBox* test_scene_combo_ = nullptr;
 	QComboBox* execution_mode_combo_ = nullptr;
+	QComboBox* worker_count_combo_ = nullptr;
 
 	QPushButton* run_button_ = nullptr;
 	QPushButton* stop_button_ = nullptr;
@@ -52,6 +52,11 @@ private:
 	QLabel* frame_value_ = nullptr;
 	QLabel* fps_value_ = nullptr;
 
-	std::function<void(TestScene, ExecutionMode)> run_test_callback_;
+	std::function<void(TestScene, ExecutionMode, std::size_t)> run_test_callback_;
 	std::function<void()> stop_test_callback_;
+
+	QPushButton* full_benchmark_button_ = nullptr;
+	QLabel* benchmark_progress_value_ = nullptr;
+
+	std::function<void()> run_full_benchmark_callback_;
 };

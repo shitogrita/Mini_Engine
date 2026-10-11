@@ -9,6 +9,7 @@
 #include "Engine/Scene/SceneSerializer.h"
 #include "Engine/Tests/Cube1kTest.h"
 #include "Engine/Tests/CubeStressTest.h"
+#include "Engine/Tests/BenchmarkCsvWriter.h"
 
 #include <QByteArray>
 #include <QFileInfo>
@@ -19,9 +20,12 @@
 #include <QWheelEvent>
 #include <QFocusEvent>
 
+#include <QTimer>
+
 #include <algorithm>
-#include <cmath>
 #include <filesystem>
+#include <thread>
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -1413,10 +1417,23 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
             frame_end - frame_start
         ).count();
 
+    /**
+     * Если benchmark уже завершён,
+     * больше результаты не накапливаем.
+     *
+     * Благодаря этому итоговая строка в CSV
+     * записывается только один раз.
+     */
     if (benchmark_finished_) {
         return;
     }
 
+    /**
+     * Первый этап benchmark — warm-up.
+     *
+     * Во время прогрева результаты не учитываются.
+     * Это позволяет пропустить первые нестабильные кадры.
+     */
     if (!benchmark_measuring_) {
         benchmark_warmup_elapsed_ms_ += frame_ms;
 
@@ -1424,10 +1441,13 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
             return;
         }
 
+        /**
+         * Warm-up завершён.
+         * Начинаем настоящее измерение.
+         */
         benchmark_measuring_ = true;
 
         benchmark_measurement_elapsed_ms_ = 0.0;
-
         performance_elapsed_ms_ = 0.0;
 
         performance_update_sum_ms_ = 0.0;
@@ -1453,11 +1473,10 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     ++performance_sample_count_;
 
     /**
-     * Не обновляем UI каждый кадр.
+     * Продолжаем измерение до окончания
+     * полного benchmark measurement window.
      *
-     * Сначала накапливаем примерно одну секунду измерений.
-     * Благодаря этому отображаемое значение значительно стабильнее,
-     * чем время одного случайного кадра.
+     * Сейчас это 5 секунд.
      */
     if (benchmark_measurement_elapsed_ms_ < kBenchmarkMeasurementMs) {
         return;
@@ -1466,8 +1485,8 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     /**
      * Защитная проверка.
      *
-     * Теоретически сюда невозможно попасть с нулевым количеством
-     * samples, но проверка делает функцию устойчивее.
+     * Теоретически сюда невозможно попасть
+     * с нулевым количеством samples.
      */
     if (performance_sample_count_ == 0) {
         return;
@@ -1477,7 +1496,8 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         static_cast<double>(performance_sample_count_);
 
     /**
-     * Среднее время CPU Update за измерительное окно.
+     * Среднее время CPU Update
+     * за всё измерительное окно.
      */
     const double average_update_ms =
         performance_update_sum_ms_ / sample_count;
@@ -1495,15 +1515,13 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         performance_frame_sum_ms_ / sample_count;
 
     /**
-     * FPS лучше вычислять по фактически прошедшему времени,
-     * а не просто как 1000 / average_frame_ms.
-     *
-     * Формула:
+     * FPS вычисляется по фактически прошедшему
+     * времени измерительного окна.
      *
      * frames / seconds
      *
-     * performance_elapsed_ms_ хранится в миллисекундах,
-     * поэтому умножаем число кадров на 1000.
+     * performance_elapsed_ms_ хранится
+     * в миллисекундах.
      */
     const double average_fps =
         performance_elapsed_ms_ > 0.0
@@ -1516,10 +1534,11 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         scene_.GetObjects().size();
 
     /**
-     * Для SingleThreaded работа выполняется одним потоком.
+     * Для SingleThreaded работа выполняется
+     * одним потоком.
      *
-     * Для MultiThreaded показываем реальное количество
-     * worker-потоков ThreadPool.
+     * Для MultiThreaded сохраняем реальное
+     * количество worker-потоков ThreadPool.
      */
     stats.worker_count =
         execution_mode_ == ExecutionMode::SingleThreaded
@@ -1532,23 +1551,65 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     stats.fps = average_fps;
 
     /**
-     * Передаём усреднённые данные в TestsDialog.
+     * Передаём итоговые усреднённые данные
+     * в TestsDialog.
      */
     performance_stats_callback_(stats);
 
+    /**
+     * Сохраняем этот benchmark в CSV.
+     *
+     * std::ios::app внутри BenchmarkCsvWriter
+     * гарантирует, что предыдущие результаты
+     * не будут удалены.
+     */
+    const std::filesystem::path benchmark_file =
+    std::filesystem::current_path() /
+    (
+        benchmark_suite_running_
+            ? "benchmark_full_results.csv"
+            : "benchmark_results.csv"
+    );
+    BenchmarkCsvWriter::Append(
+        benchmark_file,
+        stats.object_count,
+        execution_mode_,
+        stats.worker_count,
+        stats.update_ms,
+        stats.render_ms,
+        stats.frame_ms,
+        stats.fps,
+        performance_sample_count_
+    );
+
+    /**
+     * Benchmark завершён.
+     *
+     * Следующие кадры больше не изменяют
+     * итоговые показатели и не создают
+     * новые строки в CSV.
+     */
     benchmark_finished_ = true;
     benchmark_measuring_ = false;
 
     /**
-     * Начинаем новое измерительное окно.
+     * Если сейчас выполняется полный автоматический benchmark,
+     * после выхода из текущего paintGL()
+     * переключаемся на следующую конфигурацию.
+     *
+     * Нельзя вызывать StopTest() прямо здесь,
+     * потому что UpdatePerformanceStats()
+     * вызывается из paintGL().
      */
-    performance_elapsed_ms_ = 0.0;
-
-    performance_update_sum_ms_ = 0.0;
-    performance_render_sum_ms_ = 0.0;
-    performance_frame_sum_ms_ = 0.0;
-
-    performance_sample_count_ = 0;
+    if (benchmark_suite_running_) {
+        QTimer::singleShot(
+            0,
+            this,
+            [this]() {
+                FinishCurrentBenchmarkCase();
+            }
+        );
+    }
 }
 
 void SceneViewport::paintGL() {
@@ -1583,13 +1644,25 @@ void SceneViewport::paintGL() {
     UpdatePerformanceStats(frame_start, update_start, update_end, render_start, frame_end);
 }
 
-bool SceneViewport::StartTest(TestScene test_scene, ExecutionMode execution_mode) {
+bool SceneViewport::StartTest(TestScene test_scene, ExecutionMode execution_mode, std::size_t worker_count) {
     if (!gl_initialized_) {
         return false;
     }
 
     if (test_running_) {
         return false;
+    }
+
+    /**
+     * Количество worker-потоков имеет смысл только
+     * для MultiThreaded режима.
+     *
+     * В SingleThreaded SceneUpdateSystem выполняет
+     * последовательный обход в текущем потоке,
+     * поэтому ThreadPool там не используется.
+     */
+    if (execution_mode == ExecutionMode::MultiThreaded) {
+        scene_update_system_.SetWorkerCount(worker_count);
     }
 
     makeCurrent();
@@ -3508,4 +3581,239 @@ void SceneViewport::CreatePointLightObject(bool select_object) {
     UpdateProjectionTitle();
 
     update();
+}
+
+
+bool SceneViewport::StartBenchmarkSuite() {
+    if (!gl_initialized_) {
+        return false;
+    }
+
+    if (test_running_ || benchmark_suite_running_) {
+        return false;
+    }
+
+    benchmark_cases_.clear();
+    benchmark_case_index_ = 0;
+
+    const std::vector<TestScene> test_scenes = {
+        TestScene::Cube1k,
+        TestScene::Cube10k,
+        TestScene::Cube25k,
+        TestScene::Cube50k
+    };
+
+    std::size_t hardware_worker_count =
+        std::thread::hardware_concurrency();
+
+    if (hardware_worker_count == 0) {
+        hardware_worker_count = 1;
+    }
+
+    /**
+     * Именно эти значения используются
+     * в исследовании масштабирования ThreadPool.
+     *
+     * Последним дополнительно добавляется
+     * максимальное количество hardware threads.
+     */
+    std::vector<std::size_t> worker_counts = {
+        1,
+        2,
+        4,
+        6,
+        8
+    };
+
+    worker_counts.erase(
+        std::remove_if(
+            worker_counts.begin(),
+            worker_counts.end(),
+            [hardware_worker_count](std::size_t worker_count) {
+                return worker_count > hardware_worker_count;
+            }
+        ),
+        worker_counts.end()
+    );
+
+    /**
+     * Например, на машине с 10 hardware threads
+     * получим:
+     *
+     * 1, 2, 4, 6, 8, 10
+     */
+    if (
+        std::find(
+            worker_counts.begin(),
+            worker_counts.end(),
+            hardware_worker_count
+        ) == worker_counts.end()
+    ) {
+        worker_counts.push_back(
+            hardware_worker_count
+        );
+    }
+
+    for (const TestScene test_scene : test_scenes) {
+        /**
+         * Для каждой сцены сначала выполняем
+         * обычный SingleThreaded benchmark.
+         */
+        benchmark_cases_.push_back(
+            BenchmarkCase{
+                test_scene,
+                ExecutionMode::SingleThreaded,
+                1
+            }
+        );
+
+        /**
+         * Затем та же самая сцена проходит
+         * через MultiThreaded режим
+         * с разным количеством workers.
+         */
+        for (const std::size_t worker_count : worker_counts) {
+            benchmark_cases_.push_back(
+                BenchmarkCase{
+                    test_scene,
+                    ExecutionMode::MultiThreaded,
+                    worker_count
+                }
+            );
+        }
+    }
+
+    /**
+     * Full benchmark получает отдельный CSV.
+     *
+     * Предыдущий автоматический benchmark очищается,
+     * чтобы каждый полный запуск представлял
+     * самостоятельный набор измерений.
+     *
+     * Обычный benchmark_results.csv при этом
+     * не затрагивается.
+     */
+    const std::filesystem::path benchmark_file =
+        std::filesystem::current_path() /
+        "benchmark_full_results.csv";
+
+    std::error_code error_code;
+
+    std::filesystem::remove(
+        benchmark_file,
+        error_code
+    );
+
+    benchmark_suite_running_ = true;
+
+    return StartNextBenchmarkCase();
+}
+
+bool SceneViewport::StartNextBenchmarkCase() {
+    if (!benchmark_suite_running_) {
+        return false;
+    }
+
+    if (benchmark_case_index_ >= benchmark_cases_.size()) {
+        benchmark_suite_running_ = false;
+
+        if (benchmark_suite_finished_callback_) {
+            benchmark_suite_finished_callback_();
+        }
+
+        return false;
+    }
+
+    const BenchmarkCase& benchmark_case =
+        benchmark_cases_[benchmark_case_index_];
+
+    /**
+     * Сообщаем UI номер текущего теста.
+     *
+     * Для пользователя нумерация начинается с 1.
+     */
+    if (benchmark_suite_progress_callback_) {
+        benchmark_suite_progress_callback_(
+            benchmark_case_index_ + 1,
+            benchmark_cases_.size()
+        );
+    }
+
+    const bool started = StartTest(benchmark_case.test_scene, benchmark_case.execution_mode, benchmark_case.worker_count);
+
+    if (!started) {
+        benchmark_suite_running_ = false;
+
+        if (benchmark_suite_finished_callback_) {
+            benchmark_suite_finished_callback_();
+        }
+
+        return false;
+    }
+
+    return true;
+}
+
+void SceneViewport::FinishCurrentBenchmarkCase() {
+    if (!benchmark_suite_running_) {
+        return;
+    }
+
+    /**
+     * Текущий benchmark уже записан в CSV.
+     *
+     * Теперь удаляем его тестовую Scene
+     * и возвращаем обычную пользовательскую Scene.
+     */
+    if (test_running_) {
+        StopTest();
+    }
+
+    ++benchmark_case_index_;
+
+    /**
+     * Все комбинации выполнены.
+     */
+    if (benchmark_case_index_ >= benchmark_cases_.size()) {
+        benchmark_suite_running_ = false;
+
+        benchmark_cases_.clear();
+        benchmark_case_index_ = 0;
+
+        if (benchmark_suite_finished_callback_) {
+            benchmark_suite_finished_callback_();
+        }
+
+        return;
+    }
+
+    /**
+     * Запускаем следующую комбинацию.
+     */
+    if (!StartNextBenchmarkCase()) {
+        benchmark_suite_running_ = false;
+    }
+}
+
+void SceneViewport::StopBenchmarkSuite() {
+    benchmark_suite_running_ = false;
+
+    benchmark_cases_.clear();
+    benchmark_case_index_ = 0;
+
+    if (test_running_) {
+        StopTest();
+    }
+}
+
+bool SceneViewport::IsBenchmarkSuiteRunning() const {
+    return benchmark_suite_running_;
+}
+
+void SceneViewport::SetBenchmarkSuiteProgressCallback(std::function<void(std::size_t, std::size_t)> callback) {
+    benchmark_suite_progress_callback_ = std::move(callback);
+}
+
+void SceneViewport::SetBenchmarkSuiteFinishedCallback(std::function<void()> callback) {
+    benchmark_suite_finished_callback_ = std::move(callback);
 }

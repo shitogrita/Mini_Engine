@@ -1,8 +1,17 @@
 #include "Engine/Scene/SceneUpdateSystem.h"
 
 #include <algorithm>
-#include <cstddef>
 #include <memory>
+
+SceneUpdateSystem::SceneUpdateSystem() {
+    /**
+     * ThreadPool создаётся один раз вместе с SceneUpdateSystem.
+     *
+     * Если количество workers явно не передано,
+     * ThreadPool использует std::thread::hardware_concurrency().
+     */
+    thread_pool_ = std::make_unique<ThreadPool>();
+}
 
 void SceneUpdateSystem::Update(Scene& scene, float delta_time, ExecutionMode mode) {
     switch (mode) {
@@ -16,25 +25,72 @@ void SceneUpdateSystem::Update(Scene& scene, float delta_time, ExecutionMode mod
     }
 }
 
+void SceneUpdateSystem::SetWorkerCount(std::size_t worker_count) {
+    /**
+     * ThreadPool не должен работать с нулевым количеством workers.
+     *
+     * Если пользователь или другая система передали 0,
+     * используем минимально допустимое значение.
+     */
+    if (worker_count == 0) {
+        worker_count = 1;
+    }
+
+    /**
+     * Если ThreadPool уже имеет нужное количество workers,
+     * пересоздавать его нет смысла.
+     */
+    if (thread_pool_ && thread_pool_->GetWorkerCount() == worker_count) {
+        return;
+    }
+
+    /**
+     * Перед уничтожением существующего ThreadPool
+     * необходимо дождаться завершения всех уже поставленных задач.
+     *
+     * Это гарантирует, что ни один worker не будет работать
+     * с данными Scene во время пересоздания пула.
+     */
+    if (thread_pool_) {
+        thread_pool_->WaitIdle();
+    }
+
+    /**
+     * Старый ThreadPool автоматически уничтожается благодаря unique_ptr.
+     *
+     * Его destructor:
+     *
+     * stopping_ = true
+     * notify_all()
+     * join() всех worker-потоков.
+     *
+     * После этого создаётся новый ThreadPool
+     * с указанным количеством workers.
+     */
+    thread_pool_ = std::make_unique<ThreadPool>(worker_count);
+}
+
+std::size_t SceneUpdateSystem::GetWorkerCount() const {
+    if (!thread_pool_) {
+        return 0;
+    }
+
+    return thread_pool_->GetWorkerCount();
+}
+
 void SceneUpdateSystem::UpdateObject(SceneObject& object, float delta_time) {
     MotionState& motion = object.GetMotionState();
 
-    // MotionState позволяет исключить неподвижные объекты
-    // из вычислительной части обновления сцены.
     if (!motion.enabled) {
         return;
     }
 
     Transform& transform = object.GetTransform();
 
-    // Линейное движение.
-    // velocity хранится в единицах в секунду,
-    // поэтому умножаем её на время текущего кадра.
     transform.position.x += motion.linear_velocity.x * delta_time;
     transform.position.y += motion.linear_velocity.y * delta_time;
     transform.position.z += motion.linear_velocity.z * delta_time;
 
-    // Вращательное движение.
     transform.rotation.x += motion.angular_velocity.x * delta_time;
     transform.rotation.y += motion.angular_velocity.y * delta_time;
     transform.rotation.z += motion.angular_velocity.z * delta_time;
@@ -43,10 +99,15 @@ void SceneUpdateSystem::UpdateObject(SceneObject& object, float delta_time) {
 void SceneUpdateSystem::UpdateSingleThreaded(Scene& scene, float delta_time) {
     const auto& objects = scene.GetObjects();
 
-    // Последовательно обходим все объекты сцены.
-    //
-    // Здесь никакие дополнительные потоки не используются.
-    // Эта реализация является baseline для измерений.
+    /**
+     * SingleThreaded является baseline режимом.
+     *
+     * Все SceneObject обновляются последовательно
+     * в текущем потоке.
+     *
+     * Логика обновления одного объекта находится
+     * в общей функции UpdateObject().
+     */
     for (const std::shared_ptr<SceneObject>& object : objects) {
         if (!object) {
             continue;
@@ -65,164 +126,110 @@ void SceneUpdateSystem::UpdateMultiThreaded(Scene& scene, float delta_time) {
         return;
     }
 
-    // Получаем количество реально созданных worker-потоков.
-    // Например
-    // hardware_concurrency() == 8
-    // тогда ThreadPool обычно будет содержать 8 workers.
-    const std::size_t worker_count = thread_pool_.GetWorkerCount();
-
     /**
-     * Количество задач не должно превышать количество объектов.
+     * ThreadPool должен существовать на протяжении всей работы
+     * SceneUpdateSystem.
      *
-     * Например:
-     *
-     * workers = 8
-     * objects = 3
-     *
-     * Нет смысла создавать 8 задач, потому что пяти workers
-     * всё равно нечего будет обрабатывать.
-     *
-     * Поэтому:
-     *
-     * job_count = min(8, 3) = 3
+     * Constructor SceneUpdateSystem создаёт его автоматически,
+     * поэтому сюда обычно невозможно попасть с nullptr.
      */
-    const std::size_t job_count = std::min(worker_count, object_count);
+    if (!thread_pool_) {
+        thread_pool_ = std::make_unique<ThreadPool>();
+    }
+
+    const std::size_t worker_count = thread_pool_->GetWorkerCount();
 
     /**
-     * Вычисляем количество объектов в одном chunk.
+     * Количество jobs не должно превышать:
      *
-     * Используется целочисленное деление с округлением вверх:
-     *
-     *     (a + b - 1) / b
+     * 1. количество worker-потоков;
+     * 2. количество SceneObject.
      *
      * Например:
      *
-     * object_count = 1000
-     * job_count = 4
+     * workers = 10
+     * objects = 4
+     *
+     * создавать 10 jobs бессмысленно,
+     * поэтому будет создано только 4.
+     */
+    const std::size_t job_count =
+        std::min(worker_count, object_count);
+
+    /**
+     * Разбиваем SceneObjects на крупные непрерывные chunks.
+     *
+     * Формула выполняет целочисленный ceil:
      *
      * chunk_size =
-     * (1000 + 4 - 1) / 4
-     * = 1003 / 4
-     * = 250
-     *
-     *
-     * Если объектов 1001:
-     *
-     * chunk_size =
-     * (1001 + 4 - 1) / 4
-     * = 1004 / 4
-     * = 251
-     *
-     * Благодаря этому последний объект не потеряется.
-     */
-    const std::size_t chunk_size = (object_count + job_count - 1) / job_count;
-
-    /**
-     * Каждая итерация этого цикла создаёт одну задачу ThreadPool.
+     * ceil(object_count / job_count)
      *
      * Например:
      *
-     * object_count = 1000
-     * job_count = 4
-     * chunk_size = 250
+     * 25 000 objects
+     * 10 jobs
      *
-     * Получим:
-     *
-     * Job 0 -> [0,   250)
-     * Job 1 -> [250, 500)
-     * Job 2 -> [500, 750)
-     * Job 3 -> [750, 1000)
-     *
-     * Запись [begin, end) означает:
-     *
-     * begin включается,
-     * end не включается.
+     * chunk_size = 2 500.
      */
+    const std::size_t chunk_size =
+        (object_count + job_count - 1) / job_count;
+
     for (std::size_t job = 0; job < job_count; ++job) {
-        const std::size_t begin = job * chunk_size;
+        const std::size_t begin =
+            job * chunk_size;
+
+        const std::size_t end =
+            std::min(
+                begin + chunk_size,
+                object_count
+            );
 
         /**
-         * Последний chunk может математически выйти
-         * за пределы массива.
-         *
-         * Например:
-         *
-         * object_count = 1001
-         * chunk_size = 251
-         *
-         * последний диапазон без ограничения был бы:
-         *
-         * [753, 1004)
-         *
-         * хотя objects.size() == 1001.
-         *
-         * Поэтому ограничиваем end через std::min().
+         * Последний chunk может отсутствовать,
+         * если количество объектов не делится
+         * на количество jobs равномерно.
          */
-        const std::size_t end = std::min(begin + chunk_size, object_count);
-
-        // Дополнительная защита на случай, если из-за разбиения
-        // очередной диапазон начинается уже после последнего объекта.
         if (begin >= object_count) {
             break;
         }
 
         /**
-         * Передаём задачу в ThreadPool.
+         * begin, end и delta_time захватываются по значению.
          *
-         * Capture:
+         * objects захватывается по ссылке,
+         * поскольку коллекция SceneObject существует
+         * до завершения WaitIdle().
          *
-         * this
-         *     нужен для вызова UpdateObject().
-         *
-         * &objects
-         *     используем одну общую коллекцию объектов,
-         *     не копируя весь std::vector.
-         *
-         * begin
-         * end
-         *     копируются по значению.
-         *
-         *     Это принципиально важно, потому что после Enqueue()
-         *     основной поток продолжает цикл и меняет begin/end
-         *     для следующей задачи.
-         *
-         *     Каждая lambda должна сохранить собственные границы.
-         *
-         * delta_time
-         *     копируется по значению.
+         * Во время выполнения этих jobs структура
+         * scene.GetObjects() не должна изменяться.
          */
-        thread_pool_.Enqueue([this, &objects, begin, end, delta_time] {
-            /**
-             * Worker обрабатывает только принадлежащий ему диапазон.
-             *
-             * Разные jobs получают непересекающиеся диапазоны,
-             * поэтому два worker-потока не должны одновременно
-             * изменять один и тот же SceneObject.
-             */
-            for (std::size_t index = begin; index < end; ++index) {
-                const std::shared_ptr<SceneObject>& object = objects[index];
+        thread_pool_->Enqueue(
+            [this, &objects, begin, end, delta_time] {
+                for (std::size_t index = begin; index < end; ++index) {
+                    const std::shared_ptr<SceneObject>& object =
+                        objects[index];
 
-                if (!object) {
-                    continue;
+                    if (!object) {
+                        continue;
+                    }
+
+                    UpdateObject(*object, delta_time);
                 }
-
-                UpdateObject(*object, delta_time);
             }
-        });
+        );
     }
 
     /**
-     * К этому моменту все задачи только ПОСТАВЛЕНЫ в ThreadPool.
+     * Render не должен начинаться,
+     * пока workers изменяют Transform объектов.
      *
-     * Некоторые из них уже могут выполняться,
-     * некоторые ещё могут находиться в очереди.
+     * WaitIdle является барьером между:
      *
-     * Поэтому перед выходом из UpdateMultiThreaded()
-     * необходимо дождаться завершения всей работы.
+     * CPU Scene Update
+     *
+     * и
+     *
+     * Render.
      */
-    thread_pool_.WaitIdle();
-}
-
-std::size_t SceneUpdateSystem::GetWorkerCount() const {
-    return thread_pool_.GetWorkerCount();
+    thread_pool_->WaitIdle();
 }

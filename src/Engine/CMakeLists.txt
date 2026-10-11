@@ -78,6 +78,8 @@ add_library(
         Tests/ThreadPoolTest100.cpp
         Tests/CubeStressTest.cpp
         Tests/CubeStressTest.h
+        Tests/BenchmarkCsvWriter.cpp
+        Tests/BenchmarkCsvWriter.h
 
         Diagnostics/PerformanceStats.h
 

@@ -18,6 +18,7 @@
 #include <QMessageBox>
 #include <QStatusBar>
 
+#include <cstddef>
 #include <memory>
 #include <utility>
 
@@ -249,7 +250,6 @@ void EditorWindow::CreateMenuBar() {
  * тестирование открывается отдельным окном.
  */
 void EditorWindow::CreateDockWidgets() {
-
     hierarchy_dock_ = new QDockWidget(
         "Hierarchy",
         this
@@ -444,7 +444,6 @@ void EditorWindow::CreateDockWidgets() {
         }
     );
 
-
     /*
      * Когда Transform изменяется через Gizmo,
      * Inspector должен обновить свои поля.
@@ -454,6 +453,7 @@ void EditorWindow::CreateDockWidgets() {
             inspector_panel_->RefreshTransformFields();
         }
     );
+
     /*
     QMenu* create_menu = menuBar()->addMenu("Create");
 
@@ -461,7 +461,6 @@ void EditorWindow::CreateDockWidgets() {
     QAction* create_plane_action = create_menu->addAction("Plane");
     QAction* create_sphere_action = create_menu->addAction("Sphere");
     */
-
 }
 
 /**
@@ -498,9 +497,52 @@ void EditorWindow::ShowTestsDialog() {
             }
         );
 
+        scene_viewport_->SetBenchmarkSuiteProgressCallback(
+            [this](std::size_t current, std::size_t total) {
+                if (!tests_dialog_) {
+                    return;
+                }
+
+                tests_dialog_->SetBenchmarkProgress(
+                    current,
+                    total
+                );
+
+                statusBar()->showMessage(
+                    "Full benchmark: " +
+                    QString::number(static_cast<qulonglong>(current)) +
+                    " / " +
+                    QString::number(static_cast<qulonglong>(total))
+                );
+            }
+        );
+
+        scene_viewport_->SetBenchmarkSuiteFinishedCallback(
+            [this]() {
+                if (!tests_dialog_) {
+                    return;
+                }
+
+                tests_dialog_->SetRunning(false);
+
+                hierarchy_panel_->Refresh();
+                hierarchy_panel_->SetSelectedObject(nullptr);
+
+                inspector_panel_->ClearSelection();
+
+                statusBar()->showMessage(
+                    "Full benchmark finished. Results saved to benchmark_full_results.csv",
+                    5000
+                );
+            }
+        );
+
+        /**
+         * Обычный одиночный benchmark.
+         */
         tests_dialog_->SetRunTestCallback(
-            [this](TestScene test_scene, ExecutionMode execution_mode) {
-                const bool started = scene_viewport_->StartTest(test_scene, execution_mode);
+            [this](TestScene test_scene, ExecutionMode execution_mode, std::size_t worker_count) {
+                const bool started = scene_viewport_->StartTest(test_scene, execution_mode, worker_count);
 
                 if (!started) {
                     QMessageBox::warning(
@@ -513,7 +555,6 @@ void EditorWindow::ShowTestsDialog() {
                 }
 
                 hierarchy_panel_->Refresh();
-
                 hierarchy_panel_->SetSelectedObject(nullptr);
 
                 inspector_panel_->ClearSelection();
@@ -521,15 +562,50 @@ void EditorWindow::ShowTestsDialog() {
                 tests_dialog_->SetRunning(true);
 
                 statusBar()->showMessage(
-                    "Stress test started",
+                    "Benchmark test started",
                     2000
+                );
+            }
+        );
+
+        /**
+         * Полный автоматический benchmark.
+         */
+        tests_dialog_->SetRunFullBenchmarkCallback(
+            [this]() {
+                const bool started =
+                    scene_viewport_->StartBenchmarkSuite();
+
+                if (!started) {
+                    QMessageBox::warning(
+                        this,
+                        "Tests",
+                        "Failed to start full benchmark."
+                    );
+
+                    return;
+                }
+
+                hierarchy_panel_->Refresh();
+                hierarchy_panel_->SetSelectedObject(nullptr);
+
+                inspector_panel_->ClearSelection();
+
+                tests_dialog_->SetRunning(true);
+
+                statusBar()->showMessage(
+                    "Full benchmark started"
                 );
             }
         );
 
         tests_dialog_->SetStopTestCallback(
             [this]() {
-                scene_viewport_->StopTest();
+                if (scene_viewport_->IsBenchmarkSuiteRunning()) {
+                    scene_viewport_->StopBenchmarkSuite();
+                } else {
+                    scene_viewport_->StopTest();
+                }
 
                 hierarchy_panel_->Refresh();
 
@@ -756,6 +832,7 @@ void EditorWindow::ApplyEditorStyle() {
                 background-color: #365880;
                 color: white;
             }
+
             QToolBar {
                 background-color: #3c3f41;
                 border: none;
@@ -781,6 +858,7 @@ void EditorWindow::ApplyEditorStyle() {
                 background-color: #365880;
                 color: white;
             }
+
             QDockWidget {
                 color: #d7dae0;
                 font-weight: 600;
@@ -811,6 +889,7 @@ void EditorWindow::ApplyEditorStyle() {
                 background-color: transparent;
                 color: #d7dae0;
             }
+
             QTreeWidget {
                 background-color: #313335;
                 color: #d7dae0;
@@ -832,9 +911,11 @@ void EditorWindow::ApplyEditorStyle() {
                 background-color: #365880;
                 color: #ffffff;
             }
+
             QLabel {
                 color: #d7dae0;
             }
+
             QLineEdit {
                 background-color: #2b2d30;
                 color: #d7dae0;
@@ -847,6 +928,7 @@ void EditorWindow::ApplyEditorStyle() {
             QLineEdit:focus {
                 border: 1px solid #4a88c7;
             }
+
             QDoubleSpinBox {
                 background-color: #2b2d30;
                 color: #d7dae0;
@@ -867,6 +949,7 @@ void EditorWindow::ApplyEditorStyle() {
                 height: 0px;
                 border: none;
             }
+
             QComboBox {
                 background-color: #2b2d30;
                 color: #d7dae0;
@@ -897,6 +980,7 @@ void EditorWindow::ApplyEditorStyle() {
                 selection-color: white;
                 outline: none;
             }
+
             QPushButton {
                 background-color: #45484c;
                 color: #d7dae0;
@@ -921,6 +1005,7 @@ void EditorWindow::ApplyEditorStyle() {
                 background-color: #35373a;
                 border-color: #484b50;
             }
+
             QGroupBox {
                 border: 1px solid #51555a;
                 border-radius: 5px;
@@ -936,14 +1021,17 @@ void EditorWindow::ApplyEditorStyle() {
                 padding: 0px 5px;
                 color: #d7dae0;
             }
+
             QStatusBar {
                 background-color: #3c3f41;
                 color: #b8bbc1;
                 border-top: 1px solid #51555a;
             }
+
             QSplitter::handle {
                 background-color: #51555a;
             }
+
             QScrollBar:vertical {
                 background-color: #313335;
                 width: 11px;
@@ -964,6 +1052,7 @@ void EditorWindow::ApplyEditorStyle() {
             QScrollBar::sub-line:vertical {
                 height: 0px;
             }
+
             QScrollBar:horizontal {
                 background-color: #313335;
                 height: 11px;
@@ -983,6 +1072,7 @@ void EditorWindow::ApplyEditorStyle() {
             QScrollBar::sub-line:horizontal {
                 width: 0px;
             }
+
             QToolTip {
                 background-color: #45484c;
                 color: #f0f0f0;

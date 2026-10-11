@@ -4,6 +4,7 @@
 #include "Engine/Jobs/ThreadPool.h"
 #include "Engine/Scene/Scene.h"
 
+#include <memory>
 /**
  * @brief Система CPU-обновления объектов сцены.
  *
@@ -28,6 +29,9 @@
  */
 class SceneUpdateSystem {
 public:
+
+	SceneUpdateSystem();
+
     /**
      * @brief Обновляет сцену в выбранном режиме выполнения.
      *
@@ -42,6 +46,8 @@ public:
     void Update(Scene& scene, float delta_time, ExecutionMode mode);
 
     std::size_t GetWorkerCount() const;
+
+	void SetWorkerCount(std::size_t worker_count);
 
 private:
     /**
@@ -101,5 +107,5 @@ private:
      * Это значительно дешевле, чем создавать std::thread
      * заново для каждого кадра.
      */
-    ThreadPool thread_pool_;
+     std::unique_ptr<ThreadPool> thread_pool_;
 };

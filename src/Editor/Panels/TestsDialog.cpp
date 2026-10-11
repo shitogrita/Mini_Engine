@@ -12,6 +12,8 @@
 #include <QVBoxLayout>
 #include <QWindow>
 
+#include <cstddef>
+#include <thread>
 #include <utility>
 
 TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
@@ -21,8 +23,8 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     setObjectName("TestsDialog");
     setWindowTitle("Tests");
 
-    resize(460, 590);
-    setMinimumSize(430, 560);
+    resize(460, 620);
+    setMinimumSize(430, 590);
 
     setStyleSheet(
         R"(
@@ -88,6 +90,12 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
 
             QComboBox:focus {
                 border: 1px solid #4a88c7;
+            }
+
+            QComboBox:disabled {
+                color: #777a80;
+                background-color: #35373a;
+                border-color: #484b50;
             }
 
             QComboBox::drop-down {
@@ -168,7 +176,7 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
 
     QGroupBox* settings_group = new QGroupBox("Test Settings", this);
     settings_group->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    settings_group->setMinimumHeight(145);
+    settings_group->setMinimumHeight(185);
 
     QFormLayout* settings_layout = new QFormLayout(settings_group);
 
@@ -178,13 +186,7 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     settings_layout->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
     /*
-     * Нагрузочные сцены отличаются только количеством объектов.
-     *
-     * Все они используют одинаковую геометрию Cube и одинаковую
-     * логику обновления SceneUpdateSystem.
-     *
-     * Это позволяет корректно сравнивать SingleThreaded
-     * и MultiThreaded режимы при увеличении нагрузки.
+     * Выбор размера тестовой сцены.
      */
     test_scene_combo_ = new QComboBox(settings_group);
 
@@ -194,24 +196,113 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     test_scene_combo_->addItem("50 000 Cubes");
 
     /*
-     * Режим выполнения CPU Update.
-     *
-     * Single Thread:
-     * все объекты обновляются последовательно.
-     *
-     * Multi Thread:
-     * объекты разбиваются на chunks и передаются ThreadPool.
+     * Выбор способа выполнения CPU Scene Update.
      */
     execution_mode_combo_ = new QComboBox(settings_group);
 
     execution_mode_combo_->addItem("Single Thread");
     execution_mode_combo_->addItem("Multi Thread");
 
+    /*
+     * Выбор количества worker-потоков ThreadPool.
+     *
+     * Это значение используется только в MultiThreaded режиме.
+     */
+    worker_count_combo_ = new QComboBox(settings_group);
+
+    /*
+     * hardware_concurrency() сообщает рекомендуемое количество
+     * аппаратных потоков, доступных приложению.
+     *
+     * Стандарт разрешает вернуть 0,
+     * если значение определить невозможно.
+     */
+    std::size_t hardware_worker_count = std::thread::hardware_concurrency();
+
+    if (hardware_worker_count == 0) {
+        hardware_worker_count = 1;
+    }
+
+    /*
+     * Базовые значения нужны для исследования масштабирования:
+     *
+     * 1 worker
+     * 2 workers
+     * 4 workers
+     * 6 workers
+     * 8 workers
+     *
+     * Значения выше возможностей текущего процессора
+     * в ComboBox не добавляются.
+     */
+    const std::size_t worker_options[] = {
+        1,
+        2,
+        4,
+        6,
+        8
+    };
+
+    for (const std::size_t worker_count : worker_options) {
+        if (worker_count > hardware_worker_count) {
+            continue;
+        }
+
+        worker_count_combo_->addItem(
+            QString::number(static_cast<qulonglong>(worker_count)),
+            static_cast<qulonglong>(worker_count)
+        );
+    }
+
+    /*
+     * Максимальное количество hardware threads добавляем отдельно.
+     *
+     * Например, если hardware_concurrency() == 10,
+     * итоговый список будет:
+     *
+     * 1
+     * 2
+     * 4
+     * 6
+     * 8
+     * 10
+     */
+    bool hardware_worker_count_exists = false;
+
+    for (int index = 0; index < worker_count_combo_->count(); ++index) {
+        const std::size_t existing_worker_count =
+            static_cast<std::size_t>(
+                worker_count_combo_->itemData(index).toULongLong()
+            );
+
+        if (existing_worker_count == hardware_worker_count) {
+            hardware_worker_count_exists = true;
+            break;
+        }
+    }
+
+    if (!hardware_worker_count_exists) {
+        worker_count_combo_->addItem(
+            QString::number(static_cast<qulonglong>(hardware_worker_count)),
+            static_cast<qulonglong>(hardware_worker_count)
+        );
+    }
+
+    /*
+     * По умолчанию MultiThread benchmark использует
+     * максимальное доступное количество workers.
+     */
+    worker_count_combo_->setCurrentIndex(
+        worker_count_combo_->count() - 1
+    );
+
     test_scene_combo_->setMinimumWidth(180);
     execution_mode_combo_->setMinimumWidth(180);
+    worker_count_combo_->setMinimumWidth(180);
 
     settings_layout->addRow("Test Scene:", test_scene_combo_);
     settings_layout->addRow("Execution Mode:", execution_mode_combo_);
+    settings_layout->addRow("Workers:", worker_count_combo_);
 
     root_layout->addWidget(settings_group);
 
@@ -221,25 +312,40 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     button_layout->setContentsMargins(0, 0, 0, 0);
 
     run_button_ = new QPushButton("Run Test", this);
+    full_benchmark_button_ = new QPushButton("Run Full Benchmark", this);
     stop_button_ = new QPushButton("Stop", this);
 
     run_button_->setMinimumWidth(105);
+    full_benchmark_button_->setMinimumWidth(150);
     stop_button_->setMinimumWidth(80);
 
-    /*
-     * До запуска теста Stop недоступен.
-     */
     stop_button_->setEnabled(false);
 
     button_layout->addWidget(run_button_);
+    button_layout->addWidget(full_benchmark_button_);
     button_layout->addWidget(stop_button_);
     button_layout->addStretch();
+
+    benchmark_progress_value_ =
+    new QLabel("Full Benchmark: idle", this);
+
+    benchmark_progress_value_->setAlignment(
+        Qt::AlignLeft | Qt::AlignVCenter
+    );
+
+    root_layout->addWidget(
+        benchmark_progress_value_
+    );
 
     root_layout->addLayout(button_layout);
 
     QGroupBox* performance_group = new QGroupBox("Performance", this);
 
-    performance_group->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    performance_group->setSizePolicy(
+        QSizePolicy::Expanding,
+        QSizePolicy::Fixed
+    );
+
     performance_group->setMinimumHeight(245);
 
     QGridLayout* performance_layout = new QGridLayout(performance_group);
@@ -250,34 +356,30 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     performance_layout->setColumnStretch(0, 1);
     performance_layout->setColumnStretch(1, 1);
 
-    /*
-     * Создаёт левую подпись строки статистики:
-     *
-     * Objects:
-     * Workers:
-     * Update:
-     * ...
-     */
     auto create_name_label = [performance_group](const QString& text) {
         QLabel* label = new QLabel(text, performance_group);
 
         label->setObjectName("PerformanceName");
         label->setMinimumHeight(26);
         label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+        label->setSizePolicy(
+            QSizePolicy::Expanding,
+            QSizePolicy::Fixed
+        );
 
         return label;
     };
 
-    /*
-     * Настраивает правую часть строки,
-     * где отображается числовое значение.
-     */
     auto configure_value_label = [](QLabel* label) {
         label->setObjectName("PerformanceValue");
         label->setMinimumHeight(26);
         label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-        label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+        label->setSizePolicy(
+            QSizePolicy::Expanding,
+            QSizePolicy::Fixed
+        );
     };
 
     objects_value_ = new QLabel("0", performance_group);
@@ -294,69 +396,170 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     configure_value_label(frame_value_);
     configure_value_label(fps_value_);
 
-    performance_layout->addWidget(create_name_label("Objects:"), 0, 0);
-    performance_layout->addWidget(objects_value_, 0, 1);
+    performance_layout->addWidget(
+        create_name_label("Objects:"),
+        0,
+        0
+    );
 
-    performance_layout->addWidget(create_name_label("Workers:"), 1, 0);
-    performance_layout->addWidget(workers_value_, 1, 1);
+    performance_layout->addWidget(
+        objects_value_,
+        0,
+        1
+    );
 
-    performance_layout->addWidget(create_name_label("Update:"), 2, 0);
-    performance_layout->addWidget(update_value_, 2, 1);
+    performance_layout->addWidget(
+        create_name_label("Workers:"),
+        1,
+        0
+    );
 
-    performance_layout->addWidget(create_name_label("Render:"), 3, 0);
-    performance_layout->addWidget(render_value_, 3, 1);
+    performance_layout->addWidget(
+        workers_value_,
+        1,
+        1
+    );
 
-    performance_layout->addWidget(create_name_label("Frame:"), 4, 0);
-    performance_layout->addWidget(frame_value_, 4, 1);
+    performance_layout->addWidget(
+        create_name_label("Update:"),
+        2,
+        0
+    );
 
-    performance_layout->addWidget(create_name_label("FPS:"), 5, 0);
-    performance_layout->addWidget(fps_value_, 5, 1);
+    performance_layout->addWidget(
+        update_value_,
+        2,
+        1
+    );
+
+    performance_layout->addWidget(
+        create_name_label("Render:"),
+        3,
+        0
+    );
+
+    performance_layout->addWidget(
+        render_value_,
+        3,
+        1
+    );
+
+    performance_layout->addWidget(
+        create_name_label("Frame:"),
+        4,
+        0
+    );
+
+    performance_layout->addWidget(
+        frame_value_,
+        4,
+        1
+    );
+
+    performance_layout->addWidget(
+        create_name_label("FPS:"),
+        5,
+        0
+    );
+
+    performance_layout->addWidget(
+        fps_value_,
+        5,
+        1
+    );
 
     for (int row = 0; row < 6; ++row) {
-        performance_layout->setRowMinimumHeight(row, 28);
+        performance_layout->setRowMinimumHeight(
+            row,
+            28
+        );
     }
 
     root_layout->addWidget(performance_group);
 
     /*
-     * Закрытие окна Tests только скрывает его.
+     * Закрытие окна Tests только скрывает окно.
      *
-     * Объект TestsDialog не уничтожается,
-     * поэтому при следующем открытии его можно переиспользовать.
+     * Сам TestsDialog остаётся существовать,
+     * поэтому его не приходится создавать заново.
      */
-    connect(close_button, &QPushButton::clicked, this, &QWidget::hide);
+    connect(
+        close_button,
+        &QPushButton::clicked,
+        this,
+        &QWidget::hide
+    );
 
     /*
-     * Run передаёт выбранные параметры теста наружу
-     * через callback.
+     * При изменении Execution Mode состояние Workers
+     * также необходимо обновить.
      *
-     * Сам TestsDialog не создаёт Scene и ничего не рендерит.
+     * В Single Thread выбирать количество workers бессмысленно.
      */
-    connect(run_button_, &QPushButton::clicked, this, [this]() {
-        if (!run_test_callback_) {
-            return;
+    connect(
+        execution_mode_combo_,
+        &QComboBox::currentIndexChanged,
+        this,
+        [this](int) {
+            UpdateWorkerCountState();
         }
-
-        run_test_callback_(
-            GetSelectedTestScene(),
-            GetSelectedExecutionMode()
-        );
-    });
+    );
 
     /*
-     * Stop сообщает EditorWindow,
-     * что текущий benchmark необходимо завершить.
+     * Передаём выбранные параметры benchmark
+     * владельцу TestsDialog.
      */
-    connect(stop_button_, &QPushButton::clicked, this, [this]() {
-        if (!stop_test_callback_) {
-            return;
-        }
+    connect(
+    run_button_,
+    &QPushButton::clicked,
+    this,
+    [this]() {
+            if (!run_test_callback_) {
+                return;
+            }
 
-        stop_test_callback_();
-    });
+            run_test_callback_(
+                GetSelectedTestScene(),
+                GetSelectedExecutionMode(),
+                GetSelectedWorkerCount()
+            );
+        }
+    );
+
+        connect(
+        full_benchmark_button_,
+        &QPushButton::clicked,
+        this,
+        [this]() {
+            if (!run_full_benchmark_callback_) {
+                return;
+            }
+
+            run_full_benchmark_callback_();
+        }
+    );
+
+    connect(
+        stop_button_,
+        &QPushButton::clicked,
+        this,
+        [this]() {
+            if (!stop_test_callback_) {
+                return;
+            }
+
+            stop_test_callback_();
+        }
+    );
+
+    /*
+     * При открытии окна по умолчанию выбран Single Thread,
+     * поэтому Workers должен быть disabled.
+     */
+    UpdateWorkerCountState();
 }
 
-void TestsDialog::SetRunTestCallback(std::function<void(TestScene, ExecutionMode)> callback) {
+void TestsDialog::SetRunTestCallback(std::function<void(TestScene, ExecutionMode, std::size_t)> callback) {
     run_test_callback_ = std::move(callback);
 }
 
@@ -365,9 +568,13 @@ void TestsDialog::SetStopTestCallback(std::function<void()> callback) {
 }
 
 void TestsDialog::SetPerformanceStats(std::size_t object_count, std::size_t worker_count, double update_ms, double render_ms, double frame_ms, double fps) {
-    objects_value_->setText(QString::number(object_count));
+    objects_value_->setText(
+        QString::number(static_cast<qulonglong>(object_count))
+    );
 
-    workers_value_->setText(QString::number(worker_count));
+    workers_value_->setText(
+        QString::number(static_cast<qulonglong>(worker_count))
+    );
 
     update_value_->setText(
         QString::number(update_ms, 'f', 2) + " ms"
@@ -389,6 +596,7 @@ void TestsDialog::SetPerformanceStats(std::size_t object_count, std::size_t work
 void TestsDialog::ResetPerformanceStats() {
     objects_value_->setText("0");
     workers_value_->setText("1");
+
     update_value_->setText("0.00 ms");
     render_value_->setText("0.00 ms");
     frame_value_->setText("0.00 ms");
@@ -396,34 +604,41 @@ void TestsDialog::ResetPerformanceStats() {
 }
 
 void TestsDialog::SetRunning(bool running) {
-    /*
-     * Во время теста параметры блокируются.
-     *
-     * Иначе пользователь мог бы изменить Scene или ExecutionMode
-     * уже после запуска benchmark, и отображаемые параметры
-     * перестали бы соответствовать реально запущенному тесту.
-     */
     run_button_->setEnabled(!running);
+    full_benchmark_button_->setEnabled(!running);
+
     stop_button_->setEnabled(running);
 
     test_scene_combo_->setEnabled(!running);
     execution_mode_combo_->setEnabled(!running);
+
+    if (running) {
+        worker_count_combo_->setEnabled(false);
+    } else {
+        UpdateWorkerCountState();
+    }
+}
+
+void TestsDialog::UpdateWorkerCountState() {
+    if (!worker_count_combo_) {
+        return;
+    }
+
+    const bool multi_threaded =
+        GetSelectedExecutionMode() == ExecutionMode::MultiThreaded;
+
+    worker_count_combo_->setEnabled(
+        multi_threaded
+    );
 }
 
 void TestsDialog::mousePressEvent(QMouseEvent* event) {
-    /*
-     * TestsDialog frameless, поэтому стандартной title bar нет.
-     *
-     * Разрешаем перетаскивание окна мышью
-     * за верхнюю область высотой 42 пикселя.
-     */
     if (event->button() == Qt::LeftButton && event->position().y() <= 42.0) {
         if (windowHandle()) {
             windowHandle()->startSystemMove();
         }
 
         event->accept();
-
         return;
     }
 
@@ -431,16 +646,7 @@ void TestsDialog::mousePressEvent(QMouseEvent* event) {
 }
 
 TestScene TestsDialog::GetSelectedTestScene() const {
-    /*
-     * Индекс ComboBox преобразуется в TestScene.
-     *
-     * Порядок здесь должен совпадать с порядком addItem()
-     * в конструкторе.
-     */
     switch (test_scene_combo_->currentIndex()) {
-        case 0:
-            return TestScene::Cube1k;
-
         case 1:
             return TestScene::Cube10k;
 
@@ -450,15 +656,13 @@ TestScene TestsDialog::GetSelectedTestScene() const {
         case 3:
             return TestScene::Cube50k;
 
+        case 0:
         default:
             return TestScene::Cube1k;
     }
 }
 
 ExecutionMode TestsDialog::GetSelectedExecutionMode() const {
-    /*
-     * Индекс ComboBox преобразуется в ExecutionMode.
-     */
     switch (execution_mode_combo_->currentIndex()) {
         case 1:
             return ExecutionMode::MultiThreaded;
@@ -467,4 +671,45 @@ ExecutionMode TestsDialog::GetSelectedExecutionMode() const {
         default:
             return ExecutionMode::SingleThreaded;
     }
+}
+
+std::size_t TestsDialog::GetSelectedWorkerCount() const {
+    /*
+     * SingleThreaded выполняет Scene Update
+     * непосредственно в текущем потоке.
+     *
+     * ThreadPool в этом режиме не участвует.
+     */
+    if (GetSelectedExecutionMode() == ExecutionMode::SingleThreaded) {
+        return 1;
+    }
+
+    if (!worker_count_combo_) {
+        return 1;
+    }
+
+    const qulonglong selected_worker_count =
+        worker_count_combo_->currentData().toULongLong();
+
+    if (selected_worker_count == 0) {
+        return 1;
+    }
+
+    return static_cast<std::size_t>(
+        selected_worker_count
+    );
+}
+
+
+void TestsDialog::SetRunFullBenchmarkCallback(std::function<void()> callback) {
+    run_full_benchmark_callback_ = std::move(callback);
+}
+
+void TestsDialog::SetBenchmarkProgress(std::size_t current, std::size_t total) {
+    benchmark_progress_value_->setText(
+        "Full Benchmark: " +
+        QString::number(static_cast<qulonglong>(current)) +
+        " / " +
+        QString::number(static_cast<qulonglong>(total))
+    );
 }
