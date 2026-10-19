@@ -20,7 +20,6 @@
 #include <QOpenGLContext>
 #include <QWheelEvent>
 #include <QFocusEvent>
-#include <QTimer>
 
 #include <algorithm>
 #include <filesystem>
@@ -448,61 +447,78 @@ SceneViewport::~SceneViewport() {
 void SceneViewport::CreateLayout() {
     setMinimumSize(500, 400);
 
-    /*
+    /**
      * Верхняя строка Scene View.
+     *
+     * QLabel используется как лёгкий overlay поверх QOpenGLWidget. Он не
+     * перехватывает мышь, поэтому верхняя область viewport остаётся доступной
+     * для обычной навигации и выбора объектов.
      */
-    title_label_ =
-        new QLabel("Scene", this);
-
+    title_label_ = new QLabel("Scene", this);
     title_label_->setFixedHeight(34);
-
     title_label_->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
-
-    title_label_->setContentsMargins(12, 0, 0, 0);
-
-    title_label_->setStyleSheet(R"(background-color: #3c3f41; color: #d7dae0; border-bottom: 1px solid #51555a; font-size: 13px; font-weight: 600;)"
+    title_label_->setContentsMargins(12, 0, 12, 0);
+    title_label_->setTextFormat(Qt::RichText);
+    title_label_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    title_label_->setToolTip(
+        "Perspective: 1 or P\n"
+        "Orthographic: 2 or O\n"
+        "Move / Rotate / Scale Gizmo: 3 / 4 / 5\n"
+        "Grid: G   Lighting: L   Frame Selected: F"
     );
 
-    /*
-     * Сообщение, показываемое,
-     * пока ни одной модели нет.
-     */
-    content_label_ =
-        new QLabel(this);
-
-    content_label_->setAlignment(Qt::AlignCenter);
-
-    content_label_->setText("Scene View\n\n" "Open a model using\n" "File → Open Model...");
-
-    content_label_->setStyleSheet(R"(background-color: #25282b; color: #a9adb3; font-size: 16px;)"
-    );
-
-    /*
-     * Панель информации о Camera
-     * и выбранном SceneObject.
-     */
-    coordinates_label_ =
-        new QLabel(this);
-
-    coordinates_label_->setAlignment(Qt::AlignRight | Qt::AlignTop);
-
-    coordinates_label_->setStyleSheet(
+    title_label_->setStyleSheet(
         R"(
-            background-color: rgba(48, 51, 55, 210);
-            color: #c5c8ce;
-            border: 1px solid #55595f;
-            border-radius: 4px;
-            padding: 7px 9px;
-            font-family: Menlo;
-            font-size: 11px;
+            background-color: rgba(40, 42, 46, 245);
+            color: #d8dade;
+            border-bottom: 1px solid #3b3e43;
+            font-size: 13px;
         )"
     );
 
-    coordinates_label_->setText("Camera\n" "X 0.000\n" "Y 0.000\n" "Z 3.000");
+    /**
+     * Пустое состояние Scene View.
+     */
+    content_label_ = new QLabel(this);
+    content_label_->setAlignment(Qt::AlignCenter);
+    content_label_->setText(
+        "Scene View\n\n"
+        "Create a primitive or open a model"
+    );
+    content_label_->setStyleSheet(
+        R"(
+            background-color: #1e2023;
+            color: #858a91;
+            font-size: 14px;
+            padding: 20px;
+        )"
+    );
 
-    coordinates_label_->adjustSize();
+    /**
+     * Компактный overlay с координатами Camera и выбранного SceneObject.
+     *
+     * Панель полупрозрачная и не перехватывает mouse events, поэтому не
+     * мешает picking и работе Gizmo в правом верхнем углу Scene View.
+     */
+    coordinates_label_ = new QLabel(this);
+    coordinates_label_->setAlignment(Qt::AlignRight | Qt::AlignTop);
+    coordinates_label_->setTextFormat(Qt::RichText);
+    coordinates_label_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+
+    coordinates_label_->setStyleSheet(
+        R"(
+            background-color: rgba(34, 36, 40, 218);
+            color: #c9ccd1;
+            border: 1px solid rgba(86, 90, 97, 180);
+            border-radius: 6px;
+            padding: 7px 9px;
+            font-family: Menlo, Monaco, Consolas, monospace;
+            font-size: 10px;
+        )"
+    );
 
     UpdateProjectionTitle();
+    UpdateCoordinatesLabel();
 }
 
 void SceneViewport::initializeGL() {
@@ -2834,12 +2850,24 @@ void SceneViewport::UpdateProjectionTitle() {
     }
 
     const QString projection_name =
-        projection_mode_ ==
-        ProjectionMode::Perspective
+        projection_mode_ == ProjectionMode::Perspective
             ? "Perspective"
             : "Orthographic";
 
-    title_label_->setText(QString("Scene • %1 • Objects: %2") .arg(projection_name) .arg(scene_.GetObjects().size()));
+    const qulonglong object_count =
+        static_cast<qulonglong>(scene_.GetObjects().size());
+
+    title_label_->setText(
+        QString(
+            "<span style='color:#eceef0; font-weight:600;'>Scene</span>"
+            "<span style='color:#737880;'> &nbsp;•&nbsp; </span>"
+            "<span style='color:#b4b8be;'>%1</span>"
+            "<span style='color:#737880;'> &nbsp;•&nbsp; </span>"
+            "<span style='color:#8f949b;'>Objects&nbsp;%2</span>"
+        )
+            .arg(projection_name)
+            .arg(object_count)
+    );
 }
 
 /**
@@ -2864,37 +2892,52 @@ void SceneViewport::UpdateCoordinatesLabel() {
         return;
     }
 
-    const Vec3& camera_position =
-        camera_.GetPosition();
+    const Vec3& camera_position = camera_.GetPosition();
 
     QString text =
-        QString("CAMERA\n" "X %1\n" "Y %2\n" "Z %3")
-        .arg(camera_position.x, 0, 'f', 3)
-        .arg(camera_position.y, 0, 'f', 3)
-        .arg(camera_position.z, 0, 'f', 3);
+        QString(
+            "<div style='text-align:right;'>"
+            "<span style='color:#858a91; font-size:9px; font-weight:600;'>CAMERA</span><br>"
+            "<span style='color:#c9ccd1;'>X&nbsp;%1</span><br>"
+            "<span style='color:#c9ccd1;'>Y&nbsp;%2</span><br>"
+            "<span style='color:#c9ccd1;'>Z&nbsp;%3</span>"
+        )
+            .arg(camera_position.x, 0, 'f', 3)
+            .arg(camera_position.y, 0, 'f', 3)
+            .arg(camera_position.z, 0, 'f', 3);
 
-    /*
-     * Если объект выбран,
-     * дополнительно показываем его Position.
+    /**
+     * При наличии selection показываем World Position выбранного объекта
+     * под координатами Camera.
      */
     if (selected_object_) {
-        const Transform& transform =
-            selected_object_->
-                GetTransform();
+        const Transform& transform = selected_object_->GetTransform();
+        const QString object_name =
+            QString::fromStdString(selected_object_->GetName()).toHtmlEscaped();
 
         text +=
-            QString("\n\nSELECTED\n" "%1\n" "X %2\n" "Y %3\n" "Z %4")
-            .arg(QString::fromStdString(selected_object_->GetName()))
-            .arg(transform.position.x, 0, 'f', 3)
-            .arg(transform.position.y, 0, 'f', 3)
-            .arg(transform.position.z, 0, 'f', 3);
+            QString(
+                "<br><br>"
+                "<span style='color:#858a91; font-size:9px; font-weight:600;'>SELECTED</span><br>"
+                "<span style='color:#eceef0; font-weight:600;'>%1</span><br>"
+                "<span style='color:#c9ccd1;'>X&nbsp;%2</span><br>"
+                "<span style='color:#c9ccd1;'>Y&nbsp;%3</span><br>"
+                "<span style='color:#c9ccd1;'>Z&nbsp;%4</span>"
+            )
+                .arg(object_name)
+                .arg(transform.position.x, 0, 'f', 3)
+                .arg(transform.position.y, 0, 'f', 3)
+                .arg(transform.position.z, 0, 'f', 3);
     }
 
+    text += "</div>";
+
     coordinates_label_->setText(text);
-
     coordinates_label_->adjustSize();
-
-    coordinates_label_->move(std::max(10, width() - coordinates_label_->width() - 14), 48);
+    coordinates_label_->move(
+        std::max(10, width() - coordinates_label_->width() - 14),
+        48
+    );
 }
 
 Ray SceneViewport::CreateMouseRay(const QPointF& mouse_position) const {

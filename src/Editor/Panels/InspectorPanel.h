@@ -17,324 +17,240 @@ class QPushButton;
 class QString;
 
 /**
- * @brief Inspector выбранного объекта сцены.
+ * @brief Панель редактирования компонентов выбранного SceneObject.
  *
- * Inspector отображает разные компоненты
- * в зависимости от типа выбранного SceneObject.
+ * InspectorPanel отображает свойства выбранного объекта сцены и напрямую
+ * изменяет его прикладные данные. Набор секций зависит от типа объекта:
+ * - Transform отображается для любого SceneObject;
+ * - Material отображается для объектов с геометрией;
+ * - Point Light отображается для SceneObject с компонентом PointLight.
  *
- * Для обычного объекта:
+ * Для импортированной multipart-модели Inspector позволяет переключаться
+ * между RenderPart и редактировать Material каждой части отдельно.
  *
- * Transform
- * Material
+ * Визуально Inspector построен как набор нейтральных серых карточек. Фон
+ * принадлежит только самой карточке и редактируемым полям. Текстовые подписи
+ * остаются прозрачными, поэтому внутри закруглённой секции не появляются
+ * дополнительные прямоугольные плашки.
  *
- * Для Point Light:
- *
- * Transform
- * Light
- *
- * Таким образом настройки источника света
- * не отображаются у обычных объектов сцены.
+ * Inspector не выполняет OpenGL-операции самостоятельно. Загрузка Texture
+ * передаётся в SceneViewport через callback, потому что именно SceneViewport
+ * управляет активным OpenGL Context.
  */
 class InspectorPanel final : public QWidget {
 public:
     /**
      * @brief Создаёт Inspector.
      *
+     * При создании панель находится в пустом состоянии до первого выбора
+     * SceneObject.
+     *
      * @param parent Родительский QWidget.
      */
     explicit InspectorPanel(QWidget* parent = nullptr);
 
     /**
-     * @brief Устанавливает выбранный SceneObject.
+     * @brief Устанавливает объект, отображаемый в Inspector.
      *
-     * Inspector автоматически определяет тип объекта
-     * и показывает подходящие компоненты.
+     * При nullptr панель переходит в пустое состояние и скрывает секции
+     * Transform, Material и Point Light.
      *
-     * @param object Выбранный объект или nullptr.
+     * @param object Новый выбранный объект или nullptr.
      */
     void SetSelectedObject(std::shared_ptr<SceneObject> object);
 
     /**
-     * @brief Обновляет значения Transform.
+     * @brief Обновляет поля Transform из текущего состояния SceneObject.
      *
-     * Используется после изменения объекта
-     * через Gizmo во Viewport.
+     * Используется после изменения Transform непосредственно во Viewport,
+     * например через Move, Rotate или Scale Gizmo.
      */
     void RefreshTransformFields();
 
     /**
      * @brief Устанавливает callback изменения Transform или Material.
      *
-     * Callback используется для перерисовки viewport.
+     * Callback используется EditorWindow для запроса перерисовки SceneViewport.
      *
-     * @param callback Функция, вызываемая после изменения.
+     * @param callback Функция без аргументов.
      */
     void SetTransformChangedCallback(std::function<void()> callback);
 
     /**
-     * @brief Устанавливает callback выбора Texture.
+     * @brief Устанавливает callback выбора Texture для Material.
      *
-     * Реальную загрузку Texture выполняет SceneViewport,
-     * потому что там находится OpenGL Context.
+     * Реальная загрузка Texture выполняется SceneViewport при активном OpenGL
+     * Context.
      *
-     * @param callback Callback загрузки Texture.
+     * @param callback Функция, принимающая Material и выбранный путь к файлу.
      */
     void SetTextureChangedCallback(std::function<void(Material&, const QString&)> callback);
 
     /**
-     * @brief Устанавливает callback изменения PointLight.
+     * @brief Устанавливает callback изменения параметров Point Light.
      *
-     * @param callback Функция перерисовки viewport.
+     * @param callback Функция обновления SceneViewport.
      */
     void SetLightChangedCallback(std::function<void()> callback);
 
     /**
-     * @brief Очищает selection Inspector.
+     * @brief Сбрасывает selection и переводит Inspector в пустое состояние.
      */
     void ClearSelection();
 
 private:
     /**
-     * @brief Создаёт UI Inspector.
+     * @brief Создаёт полный интерфейс Inspector и подключает UI callbacks.
      */
     void CreateLayout();
 
     /**
-     * @brief Создаёт поле числового значения Transform.
+     * @brief Создаёт обычную текстовую подпись строки Inspector.
      *
-     * @return Новый QDoubleSpinBox.
+     * Label имеет прозрачный фон и небольшой левый внутренний отступ. Это
+     * сохраняет единый ритм текста, не создавая дополнительных прямоугольных
+     * элементов внутри закруглённой секции.
+     *
+     * @param text Текст подписи.
+     * @param parent Родительский QWidget.
+     * @return Настроенный QLabel.
+     */
+    QLabel* CreateFieldLabel(const QString& text, QWidget* parent) const;
+
+    /**
+     * @brief Создаёт числовое поле Transform.
+     *
+     * @return Настроенный QDoubleSpinBox.
      */
     QDoubleSpinBox* CreateTransformSpinBox();
 
     /**
-     * @brief Создаёт поле числового параметра Material или Light.
+     * @brief Создаёт числовое поле Material или Point Light.
      *
-     * @param minimum Минимальное значение.
-     * @param maximum Максимальное значение.
+     * @param minimum Минимальное допустимое значение.
+     * @param maximum Максимальное допустимое значение.
      * @param step Шаг изменения.
-     *
-     * @return Новый QDoubleSpinBox.
+     * @return Настроенный QDoubleSpinBox.
      */
     QDoubleSpinBox* CreateMaterialSpinBox(double minimum, double maximum, double step);
 
     /**
-     * @brief Обновляет Transform Inspector.
+     * @brief Копирует Transform выбранного SceneObject в поля Inspector.
      */
     void UpdateTransformFields();
 
     /**
-     * @brief Обновляет список материалов выбранного объекта.
+     * @brief Заполняет список Material выбранного объекта.
      *
-     * Для multipart OBJ каждая RenderPart
-     * получает собственный элемент списка.
+     * Для обычного объекта создаётся один пункт. Для импортированной
+     * multipart-модели создаётся отдельный пункт на каждый RenderPart.
      */
     void UpdateMaterialList();
 
     /**
-     * @brief Возвращает выбранный Material.
+     * @brief Возвращает Material, который сейчас редактируется в Inspector.
      *
-     * Для обычного объекта возвращается Material SceneObject.
-     * Для multipart-модели возвращается Material выбранной RenderPart.
-     *
-     * @return Material или nullptr.
+     * @return Указатель на Material или nullptr.
      */
     Material* GetSelectedMaterial();
 
     /**
-     * @brief Обновляет UI текущего Material.
+     * @brief Копирует параметры текущего Material в UI.
      */
     void UpdateMaterialFields();
 
     /**
-     * @brief Обновляет UI текущего PointLight.
+     * @brief Копирует параметры Point Light в UI.
      */
     void UpdateLightFields();
 
     /**
-     * @brief Обновляет цвет кнопки PointLight.
+     * @brief Обновляет цвет кнопки выбора цвета Point Light.
      */
     void UpdateLightColorButton();
 
     /**
-     * @brief Устанавливает заголовок выбранного объекта.
+     * @brief Устанавливает имя текущего SceneObject в заголовок Inspector.
      *
-     * @param object_name Имя SceneObject.
+     * @param object_name Имя объекта.
      */
     void SetObjectName(const QString& object_name);
 
+private:
     /**
-     * @brief Выбранный SceneObject.
+     * @brief SceneObject, параметры которого сейчас отображаются.
      */
     std::shared_ptr<SceneObject> selected_object_;
 
     /**
-     * @brief Заголовок Inspector.
+     * @brief Имя выбранного объекта или заголовок пустого состояния.
      */
     QLabel* title_label_ = nullptr;
 
     /**
-	 * @brief Информационный текст Inspector.
-	 *
-	 * Показывает краткое описание текущего выбранного объекта
-	 * или сообщение о том, что объект не выбран.
-	 */
+     * @brief Текст пустого состояния Inspector.
+     */
     QLabel* information_label_ = nullptr;
 
     /**
-     * @brief Контейнер Transform.
-     *
-     * Скрывается целиком при отсутствии selection.
+     * @brief Секция Position, Rotation и Scale.
      */
     QWidget* transform_section_ = nullptr;
-
-    /**
-     * @brief Заголовок Transform.
-     */
     QLabel* transform_label_ = nullptr;
 
-    /**
-     * @brief Position X.
-     */
     QDoubleSpinBox* position_x_ = nullptr;
-
-    /**
-     * @brief Position Y.
-     */
     QDoubleSpinBox* position_y_ = nullptr;
-
-    /**
-     * @brief Position Z.
-     */
     QDoubleSpinBox* position_z_ = nullptr;
 
-    /**
-     * @brief Rotation X.
-     */
     QDoubleSpinBox* rotation_x_ = nullptr;
-
-    /**
-     * @brief Rotation Y.
-     */
     QDoubleSpinBox* rotation_y_ = nullptr;
-
-    /**
-     * @brief Rotation Z.
-     */
     QDoubleSpinBox* rotation_z_ = nullptr;
 
-    /**
-     * @brief Scale X.
-     */
     QDoubleSpinBox* scale_x_ = nullptr;
-
-    /**
-     * @brief Scale Y.
-     */
     QDoubleSpinBox* scale_y_ = nullptr;
-
-    /**
-     * @brief Scale Z.
-     */
     QDoubleSpinBox* scale_z_ = nullptr;
 
     /**
-     * @brief Контейнер всего Material Inspector.
-     *
-     * Для Point Light полностью скрывается.
+     * @brief Секция Material геометрического объекта.
      */
     QWidget* material_section_ = nullptr;
-
-    /**
-     * @brief Заголовок Material.
-     */
     QLabel* material_label_ = nullptr;
-
-    /**
-     * @brief Выбор RenderPart multipart-модели.
-     */
     QComboBox* material_combo_ = nullptr;
-
-    /**
-     * @brief Кнопка выбора цвета Material.
-     */
     QPushButton* material_color_button_ = nullptr;
-
-    /**
-     * @brief Кнопка выбора Texture.
-     */
     QPushButton* material_texture_button_ = nullptr;
-
-    /**
-     * @brief Имя выбранной Texture.
-     */
     QLabel* material_texture_name_ = nullptr;
-
-    /**
-     * @brief Ambient strength.
-     */
     QDoubleSpinBox* material_ambient_ = nullptr;
-
-    /**
-     * @brief Diffuse strength.
-     */
     QDoubleSpinBox* material_diffuse_ = nullptr;
-
-    /**
-     * @brief Specular strength.
-     */
     QDoubleSpinBox* material_specular_ = nullptr;
-
-    /**
-     * @brief Shininess.
-     */
     QDoubleSpinBox* material_shininess_ = nullptr;
 
     /**
-     * @brief Контейнер параметров Point Light.
-     *
-     * Показывается только при выборе SceneObject
-     * типа PointLight.
+     * @brief Секция параметров Point Light.
      */
     QWidget* light_section_ = nullptr;
-
-    /**
-     * @brief Заголовок Light.
-     */
     QLabel* light_label_ = nullptr;
-
-    /**
-     * @brief Кнопка выбора цвета света.
-     */
     QPushButton* light_color_button_ = nullptr;
-
-    /**
-     * @brief Интенсивность света.
-     */
     QDoubleSpinBox* light_intensity_ = nullptr;
-
-    /**
-     * @brief Включён ли источник.
-     */
     QCheckBox* light_enabled_ = nullptr;
 
     /**
-     * @brief Защита от обработки valueChanged
-     * при программном обновлении UI.
+     * @brief Защищает callbacks от valueChanged во время программного
+     * обновления полей Inspector.
      */
     bool updating_fields_ = false;
 
     /**
-     * @brief Callback изменения объекта.
+     * @brief Callback изменения Transform или Material.
      */
     std::function<void()> transform_changed_callback_;
 
     /**
-     * @brief Callback загрузки Texture.
+     * @brief Callback выбора Texture.
      */
     std::function<void(Material&, const QString&)> texture_changed_callback_;
 
     /**
-     * @brief Callback изменения PointLight.
+     * @brief Callback изменения Point Light.
      */
     std::function<void()> light_changed_callback_;
 };

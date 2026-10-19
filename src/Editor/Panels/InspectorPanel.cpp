@@ -8,9 +8,14 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
+#include <QFont>
 #include <QGridLayout>
 #include <QLabel>
+#include <QLineEdit>
+#include <QPalette>
 #include <QPushButton>
+#include <QAbstractSpinBox>
+#include <QScrollArea>
 #include <QString>
 #include <QVBoxLayout>
 
@@ -41,50 +46,305 @@ InspectorPanel::InspectorPanel(QWidget* parent) : QWidget(parent) {
  * Light отображается только для Point Light.
  */
 void InspectorPanel::CreateLayout() {
-    QVBoxLayout* main_layout = new QVBoxLayout(this);
+    setObjectName("InspectorPanel");
 
-    main_layout->setContentsMargins(10, 10, 10, 10);
-    main_layout->setSpacing(10);
+    /**
+     * Все дочерние элементы получают один базовый шрифт от InspectorPanel.
+     * Размеры и начертания отдельных заголовков меняются только через style,
+     * поэтому QLabel, QDoubleSpinBox, QComboBox и QPushButton визуально
+     * принадлежат одной типографической системе.
+     */
+    QFont interface_font = font();
+    interface_font.setPointSize(13);
+    interface_font.setWeight(QFont::Normal);
+    setFont(interface_font);
 
-    title_label_ = new QLabel(this);
+    /**
+     * Внутри Inspector используется собственная нейтральная палитра.
+     *
+     * Ключевой принцип: фон есть у секции и у редактируемого control, но
+     * отсутствует у обычных текстовых QLabel. Благодаря этому подписи строк
+     * не выглядят как отдельные прямоугольные ячейки внутри rounded-card.
+     */
+    setStyleSheet(
+        R"(
+            QWidget#InspectorPanel {
+                background-color: #232529;
+                color: #d6d8dc;
+            }
 
-    title_label_->setStyleSheet(
-        "font-size: 15px; font-weight: 600;"
+            QScrollArea#InspectorScroll {
+                background-color: #232529;
+                border: none;
+            }
+
+            QWidget#InspectorContent {
+                background-color: #232529;
+            }
+
+            QWidget#InspectorPanel QLabel {
+                background-color: transparent;
+                border: none;
+                color: #d6d8dc;
+                font-size: 13px;
+                font-weight: 400;
+            }
+
+            QLabel#InspectorTitle {
+                color: #f0f1f2;
+                font-size: 17px;
+                font-weight: 600;
+                padding: 2px 0px 5px 8px;
+            }
+
+            QFrame#InspectorSeparator {
+                color: #3a3d42;
+                background-color: #3a3d42;
+                max-height: 1px;
+                min-height: 1px;
+                border: none;
+            }
+
+            QWidget#InspectorSection {
+                background-color: #292b2f;
+                border: 1px solid #3b3f45;
+                border-radius: 9px;
+            }
+
+            QLabel#SectionTitle {
+                background-color: transparent;
+                border: none;
+                color: #aeb3ba;
+                font-size: 12px;
+                font-weight: 600;
+                letter-spacing: 0.8px;
+                padding: 1px 0px 4px 8px;
+            }
+
+            QLabel#FieldLabel {
+                background-color: transparent;
+                border: none;
+                color: #d7dade;
+                font-size: 13px;
+                font-weight: 400;
+                padding-left: 8px;
+            }
+
+            QLabel#AxisHeader {
+                background-color: transparent;
+                border: none;
+                color: #9499a1;
+                font-size: 12px;
+                font-weight: 600;
+            }
+
+            QLabel#SecondaryText {
+                background-color: transparent;
+                border: none;
+                color: #92979e;
+                font-size: 13px;
+                font-weight: 400;
+                padding-left: 8px;
+            }
+
+            QLabel#InspectorInfo {
+                background-color: transparent;
+                border: none;
+                color: #8f949b;
+                font-size: 13px;
+                font-weight: 400;
+                line-height: 1.3;
+                padding: 8px;
+            }
+
+            QDoubleSpinBox {
+                background-color: #1f2124;
+                color: #e0e2e5;
+                border: 1px solid #454a51;
+                border-radius: 6px;
+                padding: 5px 8px;
+                min-height: 26px;
+                font-size: 13px;
+                font-weight: 400;
+            }
+
+            QDoubleSpinBox QLineEdit {
+                background-color: transparent;
+                color: #e0e2e5;
+                border: none;
+                padding: 0px;
+                margin: 0px;
+                font-size: 13px;
+                font-weight: 400;
+                selection-background-color: transparent;
+                selection-color: #e0e2e5;
+            }
+
+            QDoubleSpinBox:hover {
+                border-color: #5b6068;
+            }
+
+            QDoubleSpinBox:focus {
+                border-color: #747a83;
+                background-color: #1f2124;
+            }
+
+            QDoubleSpinBox::up-button,
+            QDoubleSpinBox::down-button {
+                width: 0px;
+                height: 0px;
+                border: none;
+            }
+
+            QComboBox {
+                background-color: #1f2124;
+                color: #e0e2e5;
+                border: 1px solid #454a51;
+                border-radius: 6px;
+                padding: 5px 8px;
+                min-height: 26px;
+                font-size: 13px;
+                font-weight: 400;
+            }
+
+            QComboBox:hover {
+                border-color: #5b6068;
+            }
+
+            QComboBox:focus {
+                border-color: #747a83;
+            }
+
+            QComboBox::drop-down {
+                border: none;
+                width: 22px;
+            }
+
+            QComboBox QAbstractItemView {
+                background-color: #292b2f;
+                color: #d9dbde;
+                border: 1px solid #44484e;
+                selection-background-color: #4a4e54;
+                selection-color: #ffffff;
+                outline: none;
+                font-size: 13px;
+            }
+
+            QPushButton {
+                background-color: #34373c;
+                color: #e0e2e5;
+                border: 1px solid #4a4e55;
+                border-radius: 6px;
+                padding: 5px 8px;
+                min-height: 26px;
+                font-size: 13px;
+                font-weight: 400;
+                text-align: left;
+            }
+
+            QPushButton:hover {
+                background-color: #3b3f44;
+                border-color: #5c6169;
+            }
+
+            QPushButton:pressed {
+                background-color: #2e3135;
+            }
+
+            QCheckBox {
+                background-color: transparent;
+                color: #d7dade;
+                spacing: 7px;
+                font-size: 13px;
+                font-weight: 400;
+                padding-left: 8px;
+            }
+
+            QScrollBar:vertical {
+                background-color: #232529;
+                width: 10px;
+                margin: 0px;
+            }
+
+            QScrollBar::handle:vertical {
+                background-color: #4a4e54;
+                border-radius: 5px;
+                min-height: 28px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background-color: #5a5f66;
+            }
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        )"
     );
 
-    QFrame* separator = new QFrame(this);
+    QVBoxLayout* outer_layout = new QVBoxLayout(this);
+    outer_layout->setContentsMargins(0, 0, 0, 0);
+    outer_layout->setSpacing(0);
 
+    QScrollArea* scroll_area = new QScrollArea(this);
+    scroll_area->setObjectName("InspectorScroll");
+    scroll_area->setWidgetResizable(true);
+    scroll_area->setFrameShape(QFrame::NoFrame);
+    scroll_area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+    QWidget* content = new QWidget(scroll_area);
+    content->setObjectName("InspectorContent");
+
+    QVBoxLayout* main_layout = new QVBoxLayout(content);
+    main_layout->setContentsMargins(12, 12, 12, 16);
+    main_layout->setSpacing(14);
+
+    title_label_ = new QLabel(content);
+    title_label_->setObjectName("InspectorTitle");
+
+    QFrame* separator = new QFrame(content);
+    separator->setObjectName("InspectorSeparator");
     separator->setFrameShape(QFrame::HLine);
-    separator->setFrameShadow(QFrame::Sunken);
+    separator->setFrameShadow(QFrame::Plain);
 
-    /*
-     * Transform.
-     *
-     * Transform используется любым SceneObject,
-     * включая Point Light.
+    /**
+     * Transform присутствует у любого SceneObject, включая Point Light.
      */
-    transform_section_ = new QWidget(this);
+    transform_section_ = new QWidget(content);
+    transform_section_->setObjectName("InspectorSection");
 
     QVBoxLayout* transform_section_layout = new QVBoxLayout(transform_section_);
+    transform_section_layout->setContentsMargins(12, 10, 12, 12);
+    transform_section_layout->setSpacing(9);
 
-    transform_section_layout->setContentsMargins(0, 0, 0, 0);
-    transform_section_layout->setSpacing(6);
-
-    transform_label_ = new QLabel("Transform", transform_section_);
-
-    transform_label_->setStyleSheet(
-        "font-weight: 600;"
-    );
+    transform_label_ = new QLabel("TRANSFORM", transform_section_);
+    transform_label_->setObjectName("SectionTitle");
 
     QGridLayout* transform_layout = new QGridLayout();
+    transform_layout->setHorizontalSpacing(7);
+    transform_layout->setVerticalSpacing(8);
+    transform_layout->setColumnMinimumWidth(0, 82);
+    transform_layout->setColumnStretch(1, 1);
+    transform_layout->setColumnStretch(2, 1);
+    transform_layout->setColumnStretch(3, 1);
 
-    transform_layout->setHorizontalSpacing(6);
-    transform_layout->setVerticalSpacing(6);
+    QLabel* x_label = new QLabel("X", transform_section_);
+    QLabel* y_label = new QLabel("Y", transform_section_);
+    QLabel* z_label = new QLabel("Z", transform_section_);
 
-    transform_layout->addWidget(new QLabel("", transform_section_), 0, 0);
-    transform_layout->addWidget(new QLabel("X", transform_section_), 0, 1);
-    transform_layout->addWidget(new QLabel("Y", transform_section_), 0, 2);
-    transform_layout->addWidget(new QLabel("Z", transform_section_), 0, 3);
+    x_label->setObjectName("AxisHeader");
+    y_label->setObjectName("AxisHeader");
+    z_label->setObjectName("AxisHeader");
+
+    x_label->setAlignment(Qt::AlignCenter);
+    y_label->setAlignment(Qt::AlignCenter);
+    z_label->setAlignment(Qt::AlignCenter);
+
+    transform_layout->addWidget(CreateFieldLabel("", transform_section_), 0, 0);
+    transform_layout->addWidget(x_label, 0, 1);
+    transform_layout->addWidget(y_label, 0, 2);
+    transform_layout->addWidget(z_label, 0, 3);
 
     position_x_ = CreateTransformSpinBox();
     position_y_ = CreateTransformSpinBox();
@@ -98,17 +358,17 @@ void InspectorPanel::CreateLayout() {
     scale_y_ = CreateTransformSpinBox();
     scale_z_ = CreateTransformSpinBox();
 
-    transform_layout->addWidget(new QLabel("Position", transform_section_), 1, 0);
+    transform_layout->addWidget(CreateFieldLabel("Position", transform_section_), 1, 0);
     transform_layout->addWidget(position_x_, 1, 1);
     transform_layout->addWidget(position_y_, 1, 2);
     transform_layout->addWidget(position_z_, 1, 3);
 
-    transform_layout->addWidget(new QLabel("Rotation", transform_section_), 2, 0);
+    transform_layout->addWidget(CreateFieldLabel("Rotation", transform_section_), 2, 0);
     transform_layout->addWidget(rotation_x_, 2, 1);
     transform_layout->addWidget(rotation_y_, 2, 2);
     transform_layout->addWidget(rotation_z_, 2, 3);
 
-    transform_layout->addWidget(new QLabel("Scale", transform_section_), 3, 0);
+    transform_layout->addWidget(CreateFieldLabel("Scale", transform_section_), 3, 0);
     transform_layout->addWidget(scale_x_, 3, 1);
     transform_layout->addWidget(scale_y_, 3, 2);
     transform_layout->addWidget(scale_z_, 3, 3);
@@ -116,48 +376,31 @@ void InspectorPanel::CreateLayout() {
     transform_section_layout->addWidget(transform_label_);
     transform_section_layout->addLayout(transform_layout);
 
-    /*
-     * Material.
-     *
-     * Весь Material находится в отдельном QWidget,
-     * поэтому его можно полностью скрыть
-     * при выборе Point Light.
+    /**
+     * Material отображается только для геометрических объектов.
      */
-    material_section_ = new QWidget(this);
+    material_section_ = new QWidget(content);
+    material_section_->setObjectName("InspectorSection");
 
     QVBoxLayout* material_section_layout = new QVBoxLayout(material_section_);
+    material_section_layout->setContentsMargins(12, 10, 12, 12);
+    material_section_layout->setSpacing(9);
 
-    material_section_layout->setContentsMargins(0, 0, 0, 0);
-    material_section_layout->setSpacing(6);
-
-    material_label_ = new QLabel("Material", material_section_);
-
-    material_label_->setStyleSheet(
-        "font-weight: 600;"
-    );
+    material_label_ = new QLabel("MATERIAL", material_section_);
+    material_label_->setObjectName("SectionTitle");
 
     QGridLayout* material_layout = new QGridLayout();
-
-    material_layout->setHorizontalSpacing(6);
-    material_layout->setVerticalSpacing(6);
+    material_layout->setHorizontalSpacing(10);
+    material_layout->setVerticalSpacing(8);
+    material_layout->setColumnMinimumWidth(0, 90);
+    material_layout->setColumnStretch(1, 1);
 
     material_combo_ = new QComboBox(material_section_);
+    material_color_button_ = new QPushButton("Choose...", material_section_);
+    material_texture_button_ = new QPushButton("Choose Texture...", material_section_);
 
-    material_color_button_ = new QPushButton(
-        "Select Color",
-        material_section_
-    );
-
-    material_texture_button_ = new QPushButton(
-        "Select Texture...",
-        material_section_
-    );
-
-    material_texture_name_ = new QLabel(
-        "None",
-        material_section_
-    );
-
+    material_texture_name_ = new QLabel("None", material_section_);
+    material_texture_name_->setObjectName("SecondaryText");
     material_texture_name_->setWordWrap(true);
 
     material_ambient_ = CreateMaterialSpinBox(0.0, 1.0, 0.05);
@@ -165,106 +408,73 @@ void InspectorPanel::CreateLayout() {
     material_specular_ = CreateMaterialSpinBox(0.0, 1.0, 0.05);
     material_shininess_ = CreateMaterialSpinBox(1.0, 256.0, 1.0);
 
-    material_layout->addWidget(new QLabel("Part", material_section_), 0, 0);
+    material_layout->addWidget(CreateFieldLabel("Part", material_section_), 0, 0);
     material_layout->addWidget(material_combo_, 0, 1);
 
-    material_layout->addWidget(new QLabel("Color", material_section_), 1, 0);
+    material_layout->addWidget(CreateFieldLabel("Color", material_section_), 1, 0);
     material_layout->addWidget(material_color_button_, 1, 1);
 
-    material_layout->addWidget(new QLabel("Texture", material_section_), 2, 0);
+    material_layout->addWidget(CreateFieldLabel("Texture", material_section_), 2, 0);
     material_layout->addWidget(material_texture_button_, 2, 1);
 
-    material_layout->addWidget(new QLabel("", material_section_), 3, 0);
+    material_layout->addWidget(CreateFieldLabel("", material_section_), 3, 0);
     material_layout->addWidget(material_texture_name_, 3, 1);
 
-    material_layout->addWidget(new QLabel("Ambient", material_section_), 4, 0);
+    material_layout->addWidget(CreateFieldLabel("Ambient", material_section_), 4, 0);
     material_layout->addWidget(material_ambient_, 4, 1);
 
-    material_layout->addWidget(new QLabel("Diffuse", material_section_), 5, 0);
+    material_layout->addWidget(CreateFieldLabel("Diffuse", material_section_), 5, 0);
     material_layout->addWidget(material_diffuse_, 5, 1);
 
-    material_layout->addWidget(new QLabel("Specular", material_section_), 6, 0);
+    material_layout->addWidget(CreateFieldLabel("Specular", material_section_), 6, 0);
     material_layout->addWidget(material_specular_, 6, 1);
 
-    material_layout->addWidget(new QLabel("Shininess", material_section_), 7, 0);
+    material_layout->addWidget(CreateFieldLabel("Shininess", material_section_), 7, 0);
     material_layout->addWidget(material_shininess_, 7, 1);
 
     material_section_layout->addWidget(material_label_);
     material_section_layout->addLayout(material_layout);
 
-    /*
-     * Light.
-     *
-     * Здесь находятся только свойства компонента света.
-     *
-     * Position отсутствует специально:
-     * Point Light перемещается через обычный Transform
-     * своего SceneObject.
+    /**
+     * Point Light использует общий Transform и собственную секцию света.
      */
-    light_section_ = new QWidget(this);
+    light_section_ = new QWidget(content);
+    light_section_->setObjectName("InspectorSection");
 
     QVBoxLayout* light_section_layout = new QVBoxLayout(light_section_);
+    light_section_layout->setContentsMargins(12, 10, 12, 12);
+    light_section_layout->setSpacing(9);
 
-    light_section_layout->setContentsMargins(0, 0, 0, 0);
-    light_section_layout->setSpacing(6);
+    light_label_ = new QLabel("POINT LIGHT", light_section_);
+    light_label_->setObjectName("SectionTitle");
 
-    light_label_ = new QLabel(
-        "Light",
-        light_section_
-    );
-
-    light_label_->setStyleSheet(
-        "font-weight: 600;"
-    );
-
-    light_color_button_ = new QPushButton(
-        "Select Color",
-        light_section_
-    );
-
-    light_intensity_ = CreateMaterialSpinBox(
-        0.0,
-        100.0,
-        0.1
-    );
-
-    light_enabled_ = new QCheckBox(
-        "Enabled",
-        light_section_
-    );
+    light_color_button_ = new QPushButton("Choose...", light_section_);
+    light_intensity_ = CreateMaterialSpinBox(0.0, 100.0, 0.1);
+    light_enabled_ = new QCheckBox("Enabled", light_section_);
 
     QGridLayout* light_layout = new QGridLayout();
+    light_layout->setHorizontalSpacing(10);
+    light_layout->setVerticalSpacing(8);
+    light_layout->setColumnMinimumWidth(0, 90);
+    light_layout->setColumnStretch(1, 1);
 
-    light_layout->setHorizontalSpacing(6);
-    light_layout->setVerticalSpacing(6);
-
-    light_layout->addWidget(new QLabel("Color", light_section_), 0, 0);
+    light_layout->addWidget(CreateFieldLabel("Color", light_section_), 0, 0);
     light_layout->addWidget(light_color_button_, 0, 1);
 
-    light_layout->addWidget(new QLabel("Intensity", light_section_), 1, 0);
+    light_layout->addWidget(CreateFieldLabel("Intensity", light_section_), 1, 0);
     light_layout->addWidget(light_intensity_, 1, 1);
 
-    light_layout->addWidget(new QLabel("State", light_section_), 2, 0);
+    light_layout->addWidget(CreateFieldLabel("State", light_section_), 2, 0);
     light_layout->addWidget(light_enabled_, 2, 1);
 
     light_section_layout->addWidget(light_label_);
     light_section_layout->addLayout(light_layout);
 
-    /*
-     * Информационный текст.
-     */
-    information_label_ = new QLabel(this);
-
-    information_label_->setAlignment(
-        Qt::AlignTop |
-        Qt::AlignLeft
-    );
-
+    information_label_ = new QLabel(content);
+    information_label_->setObjectName("InspectorInfo");
+    information_label_->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     information_label_->setWordWrap(true);
 
-    /*
-     * Финальная структура Inspector.
-     */
     main_layout->addWidget(title_label_);
     main_layout->addWidget(separator);
     main_layout->addWidget(transform_section_);
@@ -273,12 +483,13 @@ void InspectorPanel::CreateLayout() {
     main_layout->addWidget(information_label_);
     main_layout->addStretch();
 
-    /*
-     * Transform callback.
-     *
-     * Один callback обслуживает все девять полей,
-     * потому что после любого изменения мы просто
-     * переносим полное состояние UI в Transform.
+    scroll_area->setWidget(content);
+    outer_layout->addWidget(scroll_area);
+
+    /**
+     * Один callback обслуживает все девять полей Transform. После любого
+     * изменения полное состояние UI переносится в Transform выбранного
+     * SceneObject.
      */
     const auto update_transform = [this]() {
         if (updating_fields_ || !selected_object_) {
@@ -340,8 +551,9 @@ void InspectorPanel::CreateLayout() {
         update_transform();
     });
 
-    /*
-     * Выбор RenderPart multipart-модели.
+    /**
+     * При выборе другой RenderPart multipart-модели Inspector начинает
+     * отображать Material именно этой части.
      */
     connect(material_combo_, &QComboBox::currentIndexChanged, this, [this](int) {
         if (updating_fields_) {
@@ -351,8 +563,8 @@ void InspectorPanel::CreateLayout() {
         UpdateMaterialFields();
     });
 
-    /*
-     * Изменение числовых параметров Material.
+    /**
+     * Один callback обслуживает числовые свойства Material.
      */
     const auto update_material = [this]() {
         if (updating_fields_) {
@@ -402,8 +614,8 @@ void InspectorPanel::CreateLayout() {
         update_material();
     });
 
-    /*
-     * Изменение базового цвета Material.
+    /**
+     * Изменяет базовый цвет текущего Material.
      */
     connect(material_color_button_, &QPushButton::clicked, this, [this]() {
         Material* material = GetSelectedMaterial();
@@ -445,11 +657,9 @@ void InspectorPanel::CreateLayout() {
         }
     });
 
-    /*
-     * Выбор Texture для Material.
-     *
-     * Загрузка передаётся наружу,
-     * потому что Texture2D требует активный OpenGL Context.
+    /**
+     * Выбор Texture передаётся наружу. Texture2D создаётся в SceneViewport,
+     * где доступен активный OpenGL Context.
      */
     connect(material_texture_button_, &QPushButton::clicked, this, [this]() {
         Material* material = GetSelectedMaterial();
@@ -486,16 +696,14 @@ void InspectorPanel::CreateLayout() {
     });
 
     /**
-     * @brief Изменяет интенсивность PointLight
-     * выбранного SceneObject.
+     * Изменяет интенсивность PointLight выбранного SceneObject.
      */
     connect(light_intensity_, &QDoubleSpinBox::valueChanged, this, [this](double value) {
         if (updating_fields_ || !selected_object_) {
             return;
         }
 
-        PointLight* light =
-            selected_object_->GetPointLight();
+        PointLight* light = selected_object_->GetPointLight();
 
         if (!light) {
             return;
@@ -511,16 +719,14 @@ void InspectorPanel::CreateLayout() {
     });
 
     /**
-     * @brief Включает или выключает PointLight
-     * выбранного SceneObject.
+     * Включает или выключает PointLight выбранного SceneObject.
      */
     connect(light_enabled_, &QCheckBox::toggled, this, [this](bool enabled) {
         if (updating_fields_ || !selected_object_) {
             return;
         }
 
-        PointLight* light =
-            selected_object_->GetPointLight();
+        PointLight* light = selected_object_->GetPointLight();
 
         if (!light) {
             return;
@@ -536,23 +742,20 @@ void InspectorPanel::CreateLayout() {
     });
 
     /**
-     * @brief Изменяет цвет PointLight
-     * выбранного SceneObject.
+     * Изменяет цвет PointLight выбранного SceneObject.
      */
     connect(light_color_button_, &QPushButton::clicked, this, [this]() {
         if (!selected_object_) {
             return;
         }
 
-        PointLight* light =
-            selected_object_->GetPointLight();
+        PointLight* light = selected_object_->GetPointLight();
 
         if (!light) {
             return;
         }
 
-        const Vec3& color =
-            light->GetColor();
+        const Vec3& color = light->GetColor();
 
         const QColor initial_color = QColor::fromRgbF(
             std::clamp(color.x, 0.0f, 1.0f),
@@ -585,13 +788,32 @@ void InspectorPanel::CreateLayout() {
         }
     });
 
-    /*
-     * До первого selection компонентные секции
-     * Inspector не отображаются.
+    /**
+     * До первого selection компонентные секции Inspector не отображаются.
      */
     transform_section_->hide();
     material_section_->hide();
     light_section_->hide();
+}
+
+/**
+ * @brief Создаёт прозрачную подпись строки Inspector.
+ *
+ * Внутренний отступ слева составляет 8 px, что визуально соответствует
+ * примерно одному пробелу перед текстом. Отступ реализован через layout/style,
+ * а не добавлением символа пробела в строку, поэтому выравнивание остаётся
+ * одинаковым для всех подписей.
+ *
+ * @param text Текст подписи.
+ * @param parent Родительский QWidget.
+ * @return Настроенный QLabel.
+ */
+QLabel* InspectorPanel::CreateFieldLabel(const QString& text, QWidget* parent) const {
+    QLabel* label = new QLabel(text, parent);
+    label->setObjectName("FieldLabel");
+    label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+    label->setMinimumHeight(28);
+    return label;
 }
 
 /**
@@ -606,6 +828,44 @@ QDoubleSpinBox* InspectorPanel::CreateTransformSpinBox() {
     spin_box->setDecimals(3);
     spin_box->setSingleStep(0.1);
     spin_box->setKeyboardTracking(true);
+    spin_box->setMinimumWidth(62);
+    spin_box->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    spin_box->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+
+    /**
+     * QAbstractSpinBox::lineEdit() является protected в Qt 6, поэтому прямой
+     * вызов из InspectorPanel невозможен. Внутренний редактор при этом является
+     * дочерним QLineEdit, поэтому получаем его через QObject::findChild().
+     *
+     * Стиль задаётся непосредственно QLineEdit, а цвет выделения совпадает с
+     * фоном spin box. Благодаря этому Qt не рисует маленькую прямоугольную
+     * плашку вокруг выделенного числа внутри внешнего rounded control.
+     */
+    if (QLineEdit* editor = spin_box->findChild<QLineEdit*>()) {
+        editor->setFrame(false);
+        editor->setStyleSheet(
+            R"(
+                QLineEdit {
+                    background-color: transparent;
+                    border: none;
+                    color: #e0e2e5;
+                    padding: 0px;
+                    margin: 0px;
+                    font-size: 13px;
+                    font-weight: 400;
+                    selection-background-color: #1f2124;
+                    selection-color: #e0e2e5;
+                }
+            )"
+        );
+
+        QPalette editor_palette = editor->palette();
+        editor_palette.setColor(QPalette::Base, Qt::transparent);
+        editor_palette.setColor(QPalette::Text, QColor("#e0e2e5"));
+        editor_palette.setColor(QPalette::Highlight, QColor("#1f2124"));
+        editor_palette.setColor(QPalette::HighlightedText, QColor("#e0e2e5"));
+        editor->setPalette(editor_palette);
+    }
 
     return spin_box;
 }
@@ -626,6 +886,40 @@ QDoubleSpinBox* InspectorPanel::CreateMaterialSpinBox(double minimum, double max
     spin_box->setDecimals(3);
     spin_box->setSingleStep(step);
     spin_box->setKeyboardTracking(true);
+    spin_box->setMinimumWidth(92);
+    spin_box->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    spin_box->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+
+    /**
+     * Для Material и Point Light применяется та же настройка внутреннего
+     * QLineEdit, что и для Transform. Это гарантирует одинаковую типографику
+     * и отсутствие отдельной прямоугольной подсветки текста внутри поля.
+     */
+    if (QLineEdit* editor = spin_box->findChild<QLineEdit*>()) {
+        editor->setFrame(false);
+        editor->setStyleSheet(
+            R"(
+                QLineEdit {
+                    background-color: transparent;
+                    border: none;
+                    color: #e0e2e5;
+                    padding: 0px;
+                    margin: 0px;
+                    font-size: 13px;
+                    font-weight: 400;
+                    selection-background-color: #1f2124;
+                    selection-color: #e0e2e5;
+                }
+            )"
+        );
+
+        QPalette editor_palette = editor->palette();
+        editor_palette.setColor(QPalette::Base, Qt::transparent);
+        editor_palette.setColor(QPalette::Text, QColor("#e0e2e5"));
+        editor_palette.setColor(QPalette::Highlight, QColor("#1f2124"));
+        editor_palette.setColor(QPalette::HighlightedText, QColor("#e0e2e5"));
+        editor->setPalette(editor_palette);
+    }
 
     return spin_box;
 }
@@ -676,8 +970,9 @@ void InspectorPanel::SetSelectedObject(std::shared_ptr<SceneObject> object) {
 
     UpdateTransformFields();
 
-    const bool is_point_light =
-    selected_object_->HasPointLight();
+    information_label_->hide();
+
+    const bool is_point_light = selected_object_->HasPointLight();
     /*
      * Point Light:
      *
@@ -690,10 +985,6 @@ void InspectorPanel::SetSelectedObject(std::shared_ptr<SceneObject> object) {
         light_section_->show();
 
         UpdateLightFields();
-
-        information_label_->setText(
-            "Point Light properties."
-        );
 
         return;
     }
@@ -709,10 +1000,6 @@ void InspectorPanel::SetSelectedObject(std::shared_ptr<SceneObject> object) {
     material_section_->show();
 
     UpdateMaterialList();
-
-    information_label_->setText(
-        "Transform and Material properties of the selected SceneObject."
-    );
 }
 
 /**
@@ -881,12 +1168,28 @@ void InspectorPanel::UpdateMaterialFields() {
         std::clamp(color.z, 0.0f, 1.0f)
     );
 
+    const QString material_text_color =
+        q_color.lightnessF() > 0.62
+            ? "#1f2124"
+            : "#f2f3f4";
+
     material_color_button_->setStyleSheet(
         QString(
+            "QPushButton {"
             "background-color: %1;"
-            "border: 1px solid #666;"
-            "min-height: 22px;"
-        ).arg(q_color.name())
+            "color: %2;"
+            "border: 1px solid #5a5f66;"
+            "border-radius: 6px;"
+            "padding: 5px 8px;"
+            "min-height: 26px;"
+            "font-size: 13px;"
+            "font-weight: 400;"
+            "text-align: left;"
+            "}"
+            "QPushButton:hover {"
+            "border-color: #777c84;"
+            "}"
+        ).arg(q_color.name(), material_text_color)
     );
 
     const std::filesystem::path& texture_path =
@@ -925,9 +1228,7 @@ void InspectorPanel::SetTransformChangedCallback(std::function<void()> callback)
 void InspectorPanel::ClearSelection() {
     selected_object_.reset();
 
-    title_label_->setText(
-        "No object selected"
-    );
+    title_label_->setText("Inspector");
 
     transform_section_->hide();
     material_section_->hide();
@@ -939,9 +1240,13 @@ void InspectorPanel::ClearSelection() {
         "None"
     );
 
+    information_label_->setAlignment(Qt::AlignCenter);
+    information_label_->setMinimumHeight(170);
     information_label_->setText(
-        "Select an object in Hierarchy to inspect it."
+        "No object selected\n\n"
+        "Select an object in Hierarchy or Scene View."
     );
+    information_label_->show();
 }
 
 /**
@@ -1018,11 +1323,27 @@ void InspectorPanel::UpdateLightColorButton() {
         std::clamp(color.z, 0.0f, 1.0f)
     );
 
+    const QString light_text_color =
+        q_color.lightnessF() > 0.62
+            ? "#1f2124"
+            : "#f2f3f4";
+
     light_color_button_->setStyleSheet(
         QString(
+            "QPushButton {"
             "background-color: %1;"
-            "border: 1px solid #666;"
-            "min-height: 22px;"
-        ).arg(q_color.name())
+            "color: %2;"
+            "border: 1px solid #5a5f66;"
+            "border-radius: 6px;"
+            "padding: 5px 8px;"
+            "min-height: 26px;"
+            "font-size: 13px;"
+            "font-weight: 400;"
+            "text-align: left;"
+            "}"
+            "QPushButton:hover {"
+            "border-color: #777c84;"
+            "}"
+        ).arg(q_color.name(), light_text_color)
     );
 }
