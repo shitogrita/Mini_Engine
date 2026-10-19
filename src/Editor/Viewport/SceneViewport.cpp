@@ -1690,7 +1690,7 @@ void SceneViewport::RenderTransformGizmo(const Matrix4& view, const Matrix4& pro
 }
 
 void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time_point& frame_start, const std::chrono::steady_clock::time_point& update_start, const std::chrono::steady_clock::time_point& update_end, const std::chrono::steady_clock::time_point& render_start, const std::chrono::steady_clock::time_point& frame_end) {
-    if (!test_running_ || !performance_stats_callback_) {
+    if (!performance_stats_callback_) {
         return;
     }
 
@@ -1710,7 +1710,60 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     ).count();
 
     const RenderStats& render_stats =
-        renderer_.GetRenderStats();
+    renderer_.GetRenderStats();
+
+    if (!test_running_) {
+        performance_accumulator_ += frame_ms;
+
+        PerformanceStats stats;
+
+        stats.object_count =
+            scene_.GetObjects().size();
+
+        stats.worker_count = 1;
+
+        stats.update_ms =
+            update_ms;
+
+        stats.render_ms =
+            render_ms;
+
+        stats.frame_ms =
+            frame_ms;
+
+        stats.fps =
+            frame_ms > 0.0
+                ? 1000.0 / frame_ms
+                : 0.0;
+
+        stats.shadow_ms =
+            render_stats.shadow_ms;
+
+        stats.main_ms =
+            render_stats.main_ms;
+
+        stats.editor_ms =
+            render_stats.editor_ms;
+
+        stats.draw_calls =
+            render_stats.draw_calls;
+
+        stats.shadow_draw_calls =
+            render_stats.shadow_draw_calls;
+
+        stats.main_draw_calls =
+            render_stats.main_draw_calls;
+
+        stats.editor_draw_calls =
+            render_stats.editor_draw_calls;
+
+        performance_stats_callback_(
+            stats
+        );
+
+
+        return;
+    }
 
     if (benchmark_finished_) {
         return;
@@ -2404,6 +2457,9 @@ std::shared_ptr<SceneObject> SceneViewport::GetSelectedObject() const {
  * потому что его компонент принадлежит самому SceneObject.
  */
 void SceneViewport::DeleteSelectedObject() {
+    if (test_running_) {
+        return;
+    }
     if (!selected_object_) {
         return;
     }
@@ -3314,56 +3370,38 @@ void SceneViewport::keyReleaseEvent(QKeyEvent* event) {
 void SceneViewport::mousePressEvent(QMouseEvent* event) {
     setFocus();
 
-    /*
-     * Alt + ЛКМ:
-     *
-     * управление поворотом Camera.
-     *
-     * Camera имеет больший приоритет,
-     * чем Move Gizmo.
-     */
     if (event->button() == Qt::LeftButton && event->modifiers().testFlag(Qt::AltModifier)) {
-        pointer_look_active_ =
-            true;
-
-        last_pointer_position_ =
-            event->position();
+        pointer_look_active_ = true;
+        last_pointer_position_ = event->position();
 
         event->accept();
-
         return;
     }
 
-    /*
-     * Обычный ЛКМ.
+    /**
+     * Во время benchmark тестовая Scene является read-only.
+     *
+     * Camera через Alt + ЛКМ остаётся доступной,
+     * но выбирать и изменять SceneObject нельзя.
      */
+    if (test_running_ && event->button() == Qt::LeftButton) {
+        event->accept();
+        return;
+    }
+
     if (event->button() == Qt::LeftButton) {
-        /*
-         * Сначала проверяем Move Gizmo.
-         *
-         * Если пользователь нажал на одну
-         * из его осей, SceneObject повторно
-         * выбирать не нужно.
-         */
         if (TryBeginGizmoDrag(event->position())) {
             event->accept();
             return;
         }
 
-        /*
-         * Если ни одна ось gizmo
-         * не была нажата —
-         * выполняем обычный Ray Picking.
-         */
         SelectObjectAt(event->position());
 
         event->accept();
-
         return;
     }
 
-    QOpenGLWidget::
-        mousePressEvent(event);
+    QOpenGLWidget::mousePressEvent(event);
 }
 
 void SceneViewport::mouseReleaseEvent(QMouseEvent* event) {
@@ -3890,15 +3928,64 @@ void SceneViewport::CreateSphere() {
 }
 
 void SceneViewport::CreatePrimitive(const QString& name, ImportedMeshData mesh_data, SceneObject::Type type) {
-    if (!gl_initialized_) {
+    if (!gl_initialized_ || test_running_) {
         return;
     }
 
     makeCurrent();
 
-    const BoundingBox bounding_box = BoundingBox::FromPoints(mesh_data.positions);
-    auto mesh = std::make_shared<Mesh>(mesh_data);
-    auto object = std::make_shared<SceneObject>(name.toStdString(), std::move(mesh));
+    const BoundingBox bounding_box =
+        BoundingBox::FromPoints(mesh_data.positions);
+
+    std::shared_ptr<Mesh> mesh;
+
+    switch (type) {
+        case SceneObject::Type::Cube:
+            if (!cube_mesh_) {
+                cube_mesh_ =
+                    std::make_shared<Mesh>(
+                        mesh_data
+                    );
+            }
+
+            mesh = cube_mesh_;
+            break;
+
+        case SceneObject::Type::Plane:
+            if (!plane_mesh_) {
+                plane_mesh_ =
+                    std::make_shared<Mesh>(
+                        mesh_data
+                    );
+            }
+
+            mesh = plane_mesh_;
+            break;
+
+        case SceneObject::Type::Sphere:
+            if (!sphere_mesh_) {
+                sphere_mesh_ =
+                    std::make_shared<Mesh>(
+                        mesh_data
+                    );
+            }
+
+            mesh = sphere_mesh_;
+            break;
+
+        default:
+            mesh =
+                std::make_shared<Mesh>(
+                    mesh_data
+                );
+            break;
+    }
+
+    auto object =
+        std::make_shared<SceneObject>(
+            name.toStdString(),
+            mesh
+        );
 
     object->SetType(type);
     object->SetBoundingBox(bounding_box);
@@ -3927,6 +4014,10 @@ void SceneViewport::CreatePrimitive(const QString& name, ImportedMeshData mesh_d
  * света вместе с остальными объектами.
  */
 void SceneViewport::ClearScene() {
+    if (test_running_) {
+        return;
+    }
+
     ResetInputState();
     scene_.Clear();
 
@@ -3959,6 +4050,9 @@ void SceneViewport::ResetInputState() {
 }
 
 void SceneViewport::SetMaterialTexture(Material& material, const QString& path) {
+    if (test_running_) {
+        return;
+    }
     if (path.isEmpty()) {
         return;
     }
@@ -3978,7 +4072,7 @@ void SceneViewport::SetMaterialTexture(Material& material, const QString& path) 
 }
 
 bool SceneViewport::LoadScene(const QString& file_path) {
-    if (file_path.isEmpty() || !gl_initialized_) {
+    if (file_path.isEmpty() || !gl_initialized_ || test_running_) {
         return false;
     }
 
@@ -4014,6 +4108,10 @@ bool SceneViewport::LoadScene(const QString& file_path) {
  * @brief Создаёт Point Light и сразу выбирает его.
  */
 void SceneViewport::CreatePointLight() {
+    if (test_running_) {
+        return;
+    }
+
     CreatePointLightObject(true);
 }
 

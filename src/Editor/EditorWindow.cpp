@@ -619,6 +619,10 @@ void EditorWindow::ShowTestsDialog() {
 
                 tests_dialog_->SetRunning(true);
 
+                hierarchy_panel_->setEnabled(false);
+                inspector_panel_->setEnabled(false);
+                project_panel_->setEnabled(false);
+
                 statusBar()->showMessage(
                     "Benchmark test started",
                     2000
@@ -663,6 +667,9 @@ void EditorWindow::ShowTestsDialog() {
                     scene_viewport_->StopBenchmarkSuite();
                 } else {
                     scene_viewport_->StopTest();
+                    hierarchy_panel_->setEnabled(true);
+                    inspector_panel_->setEnabled(true);
+                    project_panel_->setEnabled(true);
                 }
 
                 hierarchy_panel_->Refresh();

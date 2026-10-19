@@ -416,6 +416,10 @@ private:
      */
     std::unique_ptr<Shader> shadow_shader_;
 
+    std::shared_ptr<Mesh> cube_mesh_;
+    std::shared_ptr<Mesh> plane_mesh_;
+    std::shared_ptr<Mesh> sphere_mesh_;
+
     /**
      * @brief Depth Cubemap и framebuffer
      * для Point Light shadows.
