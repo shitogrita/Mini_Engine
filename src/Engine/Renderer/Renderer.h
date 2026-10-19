@@ -2,6 +2,7 @@
 
 #include "Engine/Math/matrix_types.h"
 #include "Engine/Renderer/Mesh.h"
+#include "Engine/Renderer/RenderStats.h"
 #include "Engine/Renderer/Shader.h"
 
 /**
@@ -13,7 +14,8 @@
  * - настройку viewport;
  * - обычный рендеринг Mesh;
  * - рендеринг линий;
- * - depth-only rendering для Shadow Map.
+ * - depth-only rendering для Shadow Map;
+ * - сбор статистики рендеринга.
  *
  * Renderer не владеет Scene и не принимает решений
  * о том, какие SceneObject необходимо рисовать.
@@ -24,6 +26,37 @@ public:
      * @brief Инициализирует базовое состояние OpenGL.
      */
     void Initialize();
+
+    /**
+     * @brief Сбрасывает статистику перед началом нового кадра.
+     */
+    void BeginFrameStats();
+
+    /**
+     * @brief Устанавливает текущий этап рендеринга.
+     *
+     * Все последующие draw calls будут относиться
+     * к указанному RenderPass.
+     *
+     * @param pass Текущий этап рендеринга.
+     */
+    void SetRenderPass(RenderPass pass);
+
+    /**
+     * @brief Добавляет время выполнения этапа рендеринга.
+     *
+     * Метод именно добавляет время, поскольку один этап
+     * может состоять из нескольких участков paintGL().
+     *
+     * @param pass Этап рендеринга.
+     * @param milliseconds Время в миллисекундах.
+     */
+    void AddRenderPassTime(RenderPass pass, double milliseconds);
+
+    /**
+     * @brief Возвращает статистику текущего кадра.
+     */
+    const RenderStats& GetRenderStats() const;
 
     /**
      * @brief Начинает обычный кадр.
@@ -85,12 +118,21 @@ public:
     void DrawDepth(const Mesh& mesh, const Shader& shader);
 
     /**
-	 * @brief Делает указанный framebuffer текущим.
-	 *
-	 * Используется после Shadow Pass для возврата
-	 * к framebuffer, принадлежащему QOpenGLWidget.
-	 *
-	 * @param framebuffer_id OpenGL ID framebuffer.
-	 */
+     * @brief Делает указанный framebuffer текущим.
+     *
+     * Используется после Shadow Pass для возврата
+     * к framebuffer, принадлежащему QOpenGLWidget.
+     *
+     * @param framebuffer_id OpenGL ID framebuffer.
+     */
     void BindFramebuffer(unsigned int framebuffer_id);
+
+private:
+    /**
+     * @brief Регистрирует выполненный OpenGL draw call.
+     */
+    void RegisterDrawCall();
+
+    RenderStats render_stats_;
+    RenderPass current_render_pass_ = RenderPass::None;
 };

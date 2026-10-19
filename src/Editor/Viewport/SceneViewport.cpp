@@ -1387,9 +1387,12 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         ).count();
 
     const double frame_ms =
-        std::chrono::duration<double, std::milli>(
-            frame_end - frame_start
-        ).count();
+    std::chrono::duration<double, std::milli>(
+        frame_end - frame_start
+    ).count();
+
+    const RenderStats& render_stats =
+        renderer_.GetRenderStats();
 
     if (benchmark_finished_) {
         return;
@@ -1467,6 +1470,27 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     performance_frame_sum_ms_ +=
         frame_ms;
 
+    performance_shadow_sum_ms_ +=
+    render_stats.shadow_ms;
+
+    performance_main_sum_ms_ +=
+        render_stats.main_ms;
+
+    performance_editor_sum_ms_ +=
+        render_stats.editor_ms;
+
+    performance_draw_calls_sum_ +=
+        render_stats.draw_calls;
+
+    performance_shadow_draw_calls_sum_ +=
+        render_stats.shadow_draw_calls;
+
+    performance_main_draw_calls_sum_ +=
+        render_stats.main_draw_calls;
+
+    performance_editor_draw_calls_sum_ +=
+        render_stats.editor_draw_calls;
+
     performance_elapsed_ms_ +=
         frame_ms;
 
@@ -1522,6 +1546,50 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
 
     PerformanceStats stats;
 
+    const double average_shadow_ms =
+    performance_shadow_sum_ms_ /
+    sample_count;
+
+    const double average_main_ms =
+        performance_main_sum_ms_ /
+        sample_count;
+
+    const double average_editor_ms =
+        performance_editor_sum_ms_ /
+        sample_count;
+
+    const std::size_t average_draw_calls =
+        static_cast<std::size_t>(
+            std::llround(
+                static_cast<double>(performance_draw_calls_sum_) /
+                sample_count
+            )
+        );
+
+    const std::size_t average_shadow_draw_calls =
+        static_cast<std::size_t>(
+            std::llround(
+                static_cast<double>(performance_shadow_draw_calls_sum_) /
+                sample_count
+            )
+        );
+
+    const std::size_t average_main_draw_calls =
+        static_cast<std::size_t>(
+            std::llround(
+                static_cast<double>(performance_main_draw_calls_sum_) /
+                sample_count
+            )
+        );
+
+    const std::size_t average_editor_draw_calls =
+        static_cast<std::size_t>(
+            std::llround(
+                static_cast<double>(performance_editor_draw_calls_sum_) /
+                sample_count
+            )
+        );
+
     stats.object_count =
         scene_.GetObjects().size();
 
@@ -1542,6 +1610,27 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
 
     stats.fps =
         average_fps;
+
+    stats.shadow_ms =
+    average_shadow_ms;
+
+    stats.main_ms =
+        average_main_ms;
+
+    stats.editor_ms =
+        average_editor_ms;
+
+    stats.draw_calls =
+        average_draw_calls;
+
+    stats.shadow_draw_calls =
+        average_shadow_draw_calls;
+
+    stats.main_draw_calls =
+        average_main_draw_calls;
+
+    stats.editor_draw_calls =
+        average_editor_draw_calls;
 
     /**
      * Показываем итоговый результат
@@ -1625,12 +1714,37 @@ void SceneViewport::paintGL() {
     const float delta_time = CalculateFrameDeltaTime(frame_start);
 
     const auto update_start = std::chrono::steady_clock::now();
-    scene_update_system_.Update(scene_, delta_time, execution_mode_);
+
+    scene_update_system_.Update(
+        scene_,
+        delta_time,
+        execution_mode_
+    );
+
     const auto update_end = std::chrono::steady_clock::now();
 
     const auto render_start = std::chrono::steady_clock::now();
 
+    renderer_.BeginFrameStats();
+
+    renderer_.SetRenderPass(RenderPass::Shadow);
+
+    const auto shadow_start = std::chrono::steady_clock::now();
+
     const int shadow_light_index = RenderPointShadowMap();
+
+    const auto shadow_end = std::chrono::steady_clock::now();
+
+    renderer_.AddRenderPassTime(
+        RenderPass::Shadow,
+        std::chrono::duration<double, std::milli>(
+            shadow_end - shadow_start
+        ).count()
+    );
+
+    renderer_.SetRenderPass(RenderPass::Main);
+
+    const auto main_prepare_start = std::chrono::steady_clock::now();
 
     renderer_.BeginFrame(background_color_);
 
@@ -1639,13 +1753,73 @@ void SceneViewport::paintGL() {
     const Matrix4 view_projection = AffineTransformation::Multiply4(projection, view);
 
     PrepareMainShader(shadow_light_index);
+
+    const auto main_prepare_end = std::chrono::steady_clock::now();
+
+    renderer_.AddRenderPassTime(
+        RenderPass::Main,
+        std::chrono::duration<double, std::milli>(
+            main_prepare_end - main_prepare_start
+        ).count()
+    );
+
+    renderer_.SetRenderPass(RenderPass::Editor);
+
+    const auto grid_start = std::chrono::steady_clock::now();
+
     RenderGridAndAxes(view_projection);
+
+    const auto grid_end = std::chrono::steady_clock::now();
+
+    renderer_.AddRenderPassTime(
+        RenderPass::Editor,
+        std::chrono::duration<double, std::milli>(
+            grid_end - grid_start
+        ).count()
+    );
+
+    renderer_.SetRenderPass(RenderPass::Main);
+
+    const auto scene_start = std::chrono::steady_clock::now();
+
     RenderSceneObjects(view, projection);
+
+    const auto scene_end = std::chrono::steady_clock::now();
+
+    renderer_.AddRenderPassTime(
+        RenderPass::Main,
+        std::chrono::duration<double, std::milli>(
+            scene_end - scene_start
+        ).count()
+    );
+
+    renderer_.SetRenderPass(RenderPass::Editor);
+
+    const auto editor_start = std::chrono::steady_clock::now();
+
     RenderPointLightMarkers(view, projection);
     RenderTransformGizmo(view, projection);
 
+    const auto editor_end = std::chrono::steady_clock::now();
+
+    renderer_.AddRenderPassTime(
+        RenderPass::Editor,
+        std::chrono::duration<double, std::milli>(
+            editor_end - editor_start
+        ).count()
+    );
+
+    renderer_.SetRenderPass(RenderPass::None);
+
     const auto frame_end = std::chrono::steady_clock::now();
-    UpdatePerformanceStats(frame_start, update_start, update_end, render_start, frame_end);
+
+    UpdatePerformanceStats(
+        frame_start,
+        update_start,
+        update_end,
+        render_start,
+        frame_end
+    );
 }
 
 bool SceneViewport::StartTest(TestScene test_scene, ExecutionMode execution_mode, std::size_t worker_count) {
@@ -1745,6 +1919,14 @@ bool SceneViewport::StartTest(TestScene test_scene, ExecutionMode execution_mode
     performance_update_sum_ms_ = 0.0;
     performance_render_sum_ms_ = 0.0;
     performance_frame_sum_ms_ = 0.0;
+    performance_shadow_sum_ms_ = 0.0;
+    performance_main_sum_ms_ = 0.0;
+    performance_editor_sum_ms_ = 0.0;
+
+    performance_draw_calls_sum_ = 0;
+    performance_shadow_draw_calls_sum_ = 0;
+    performance_main_draw_calls_sum_ = 0;
+    performance_editor_draw_calls_sum_ = 0;
 
     performance_sample_count_ = 0;
 
@@ -1795,6 +1977,15 @@ void SceneViewport::StopTest() {
     performance_update_sum_ms_ = 0.0;
     performance_render_sum_ms_ = 0.0;
     performance_frame_sum_ms_ = 0.0;
+
+    performance_shadow_sum_ms_ = 0.0;
+    performance_main_sum_ms_ = 0.0;
+    performance_editor_sum_ms_ = 0.0;
+
+    performance_draw_calls_sum_ = 0;
+    performance_shadow_draw_calls_sum_ = 0;
+    performance_main_draw_calls_sum_ = 0;
+    performance_editor_draw_calls_sum_ = 0;
 
     performance_sample_count_ = 0;
 

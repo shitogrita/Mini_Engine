@@ -46,6 +46,15 @@ struct PerformanceStats {
     double render_ms = 0.0;
     double frame_ms = 0.0;
     double fps = 0.0;
+
+    double shadow_ms = 0.0;
+    double main_ms = 0.0;
+    double editor_ms = 0.0;
+
+    std::size_t draw_calls = 0;
+    std::size_t shadow_draw_calls = 0;
+    std::size_t main_draw_calls = 0;
+    std::size_t editor_draw_calls = 0;
 };
 
 /**
@@ -501,6 +510,14 @@ private:
     double performance_update_sum_ms_ = 0.0;
     double performance_render_sum_ms_ = 0.0;
     double performance_frame_sum_ms_ = 0.0;
+    double performance_shadow_sum_ms_ = 0.0;
+    double performance_main_sum_ms_ = 0.0;
+    double performance_editor_sum_ms_ = 0.0;
+
+    std::size_t performance_draw_calls_sum_ = 0;
+    std::size_t performance_shadow_draw_calls_sum_ = 0;
+    std::size_t performance_main_draw_calls_sum_ = 0;
+    std::size_t performance_editor_draw_calls_sum_ = 0;
 
     /**
      * @brief Количество кадров,

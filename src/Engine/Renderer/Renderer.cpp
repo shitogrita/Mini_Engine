@@ -11,6 +11,79 @@ void Renderer::Initialize() {
 }
 
 /**
+ * @brief Сбрасывает статистику перед началом нового кадра.
+ */
+void Renderer::BeginFrameStats() {
+    render_stats_.Reset();
+    current_render_pass_ = RenderPass::None;
+}
+
+/**
+ * @brief Устанавливает текущий этап рендеринга.
+ *
+ * @param pass Текущий этап рендеринга.
+ */
+void Renderer::SetRenderPass(RenderPass pass) {
+    current_render_pass_ = pass;
+}
+
+/**
+ * @brief Добавляет время выполнения render pass.
+ *
+ * @param pass Этап рендеринга.
+ * @param milliseconds Время выполнения в миллисекундах.
+ */
+void Renderer::AddRenderPassTime(RenderPass pass, double milliseconds) {
+    switch (pass) {
+        case RenderPass::Shadow:
+            render_stats_.shadow_ms += milliseconds;
+            break;
+
+        case RenderPass::Main:
+            render_stats_.main_ms += milliseconds;
+            break;
+
+        case RenderPass::Editor:
+            render_stats_.editor_ms += milliseconds;
+            break;
+
+        case RenderPass::None:
+            break;
+    }
+}
+
+/**
+ * @brief Возвращает статистику Renderer текущего кадра.
+ */
+const RenderStats& Renderer::GetRenderStats() const {
+    return render_stats_;
+}
+
+/**
+ * @brief Регистрирует один выполненный draw call.
+ */
+void Renderer::RegisterDrawCall() {
+    ++render_stats_.draw_calls;
+
+    switch (current_render_pass_) {
+        case RenderPass::Shadow:
+            ++render_stats_.shadow_draw_calls;
+            break;
+
+        case RenderPass::Main:
+            ++render_stats_.main_draw_calls;
+            break;
+
+        case RenderPass::Editor:
+            ++render_stats_.editor_draw_calls;
+            break;
+
+        case RenderPass::None:
+            break;
+    }
+}
+
+/**
  * @brief Начинает обычный render frame.
  *
  * @param background_color Цвет очистки Color Buffer.
@@ -70,6 +143,8 @@ void Renderer::Draw(const Mesh& mesh, const Shader& shader, const Matrix4& mvp) 
         nullptr
     );
 
+    RegisterDrawCall();
+
     glBindVertexArray(0);
 }
 
@@ -104,6 +179,8 @@ void Renderer::DrawLines(const Mesh& mesh, const Shader& shader, const Matrix4& 
         nullptr
     );
 
+    RegisterDrawCall();
+
     glBindVertexArray(0);
 }
 
@@ -134,6 +211,8 @@ void Renderer::DrawDepth(const Mesh& mesh, const Shader& shader) {
         GL_UNSIGNED_INT,
         nullptr
     );
+
+    RegisterDrawCall();
 
     glBindVertexArray(0);
 }

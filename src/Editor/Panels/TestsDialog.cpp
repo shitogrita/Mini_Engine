@@ -23,8 +23,8 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     setObjectName("TestsDialog");
     setWindowTitle("Tests");
 
-    resize(460, 620);
-    setMinimumSize(430, 590);
+    resize(660, 620);
+    setMinimumSize(620, 590);
 
     setStyleSheet(
         R"(
@@ -389,6 +389,15 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     frame_value_ = new QLabel("0.00 ms", performance_group);
     fps_value_ = new QLabel("0.0", performance_group);
 
+    shadow_value_ = new QLabel("0.00 ms", performance_group);
+    main_value_ = new QLabel("0.00 ms", performance_group);
+    editor_value_ = new QLabel("0.00 ms", performance_group);
+
+    draw_calls_value_ = new QLabel("0", performance_group);
+    shadow_draw_calls_value_ = new QLabel("0", performance_group);
+    main_draw_calls_value_ = new QLabel("0", performance_group);
+    editor_draw_calls_value_ = new QLabel("0", performance_group);
+
     configure_value_label(objects_value_);
     configure_value_label(workers_value_);
     configure_value_label(update_value_);
@@ -396,83 +405,61 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     configure_value_label(frame_value_);
     configure_value_label(fps_value_);
 
-    performance_layout->addWidget(
-        create_name_label("Objects:"),
-        0,
-        0
-    );
+    configure_value_label(shadow_value_);
+    configure_value_label(main_value_);
+    configure_value_label(editor_value_);
 
-    performance_layout->addWidget(
-        objects_value_,
-        0,
-        1
-    );
+    configure_value_label(draw_calls_value_);
+    configure_value_label(shadow_draw_calls_value_);
+    configure_value_label(main_draw_calls_value_);
+    configure_value_label(editor_draw_calls_value_);
 
-    performance_layout->addWidget(
-        create_name_label("Workers:"),
-        1,
-        0
-    );
+    performance_layout->setColumnStretch(0, 1);
+    performance_layout->setColumnStretch(1, 1);
+    performance_layout->setColumnStretch(2, 1);
+    performance_layout->setColumnStretch(3, 1);
 
-    performance_layout->addWidget(
-        workers_value_,
-        1,
-        1
-    );
+    performance_layout->addWidget(create_name_label("Objects:"), 0, 0);
+    performance_layout->addWidget(objects_value_, 0, 1);
 
-    performance_layout->addWidget(
-        create_name_label("Update:"),
-        2,
-        0
-    );
+    performance_layout->addWidget(create_name_label("Shadow:"), 0, 2);
+    performance_layout->addWidget(shadow_value_, 0, 3);
 
-    performance_layout->addWidget(
-        update_value_,
-        2,
-        1
-    );
+    performance_layout->addWidget(create_name_label("Workers:"), 1, 0);
+    performance_layout->addWidget(workers_value_, 1, 1);
 
-    performance_layout->addWidget(
-        create_name_label("Render:"),
-        3,
-        0
-    );
+    performance_layout->addWidget(create_name_label("Main:"), 1, 2);
+    performance_layout->addWidget(main_value_, 1, 3);
 
-    performance_layout->addWidget(
-        render_value_,
-        3,
-        1
-    );
+    performance_layout->addWidget(create_name_label("Update:"), 2, 0);
+    performance_layout->addWidget(update_value_, 2, 1);
 
-    performance_layout->addWidget(
-        create_name_label("Frame:"),
-        4,
-        0
-    );
+    performance_layout->addWidget(create_name_label("Editor:"), 2, 2);
+    performance_layout->addWidget(editor_value_, 2, 3);
 
-    performance_layout->addWidget(
-        frame_value_,
-        4,
-        1
-    );
+    performance_layout->addWidget(create_name_label("Render:"), 3, 0);
+    performance_layout->addWidget(render_value_, 3, 1);
 
-    performance_layout->addWidget(
-        create_name_label("FPS:"),
-        5,
-        0
-    );
+    performance_layout->addWidget(create_name_label("Draw Calls:"), 3, 2);
+    performance_layout->addWidget(draw_calls_value_, 3, 3);
 
-    performance_layout->addWidget(
-        fps_value_,
-        5,
-        1
-    );
+    performance_layout->addWidget(create_name_label("Frame:"), 4, 0);
+    performance_layout->addWidget(frame_value_, 4, 1);
 
-    for (int row = 0; row < 6; ++row) {
-        performance_layout->setRowMinimumHeight(
-            row,
-            28
-        );
+    performance_layout->addWidget(create_name_label("Shadow Draws:"), 4, 2);
+    performance_layout->addWidget(shadow_draw_calls_value_, 4, 3);
+
+    performance_layout->addWidget(create_name_label("FPS:"), 5, 0);
+    performance_layout->addWidget(fps_value_, 5, 1);
+
+    performance_layout->addWidget(create_name_label("Main Draws:"), 5, 2);
+    performance_layout->addWidget(main_draw_calls_value_, 5, 3);
+
+    performance_layout->addWidget(create_name_label("Editor Draws:"), 6, 2);
+    performance_layout->addWidget(editor_draw_calls_value_, 6, 3);
+
+    for (int row = 0; row < 7; ++row) {
+        performance_layout->setRowMinimumHeight(row, 28);
     }
 
     root_layout->addWidget(performance_group);
@@ -567,7 +554,7 @@ void TestsDialog::SetStopTestCallback(std::function<void()> callback) {
     stop_test_callback_ = std::move(callback);
 }
 
-void TestsDialog::SetPerformanceStats(std::size_t object_count, std::size_t worker_count, double update_ms, double render_ms, double frame_ms, double fps) {
+void TestsDialog::SetPerformanceStats(std::size_t object_count, std::size_t worker_count, double update_ms, double render_ms, double frame_ms, double fps, double shadow_ms, double main_ms, double editor_ms, std::size_t draw_calls, std::size_t shadow_draw_calls, std::size_t main_draw_calls, std::size_t editor_draw_calls) {
     objects_value_->setText(
         QString::number(static_cast<qulonglong>(object_count))
     );
@@ -591,6 +578,34 @@ void TestsDialog::SetPerformanceStats(std::size_t object_count, std::size_t work
     fps_value_->setText(
         QString::number(fps, 'f', 1)
     );
+
+    shadow_value_->setText(
+        QString::number(shadow_ms, 'f', 2) + " ms"
+    );
+
+    main_value_->setText(
+        QString::number(main_ms, 'f', 2) + " ms"
+    );
+
+    editor_value_->setText(
+        QString::number(editor_ms, 'f', 2) + " ms"
+    );
+
+    draw_calls_value_->setText(
+        QString::number(static_cast<qulonglong>(draw_calls))
+    );
+
+    shadow_draw_calls_value_->setText(
+        QString::number(static_cast<qulonglong>(shadow_draw_calls))
+    );
+
+    main_draw_calls_value_->setText(
+        QString::number(static_cast<qulonglong>(main_draw_calls))
+    );
+
+    editor_draw_calls_value_->setText(
+        QString::number(static_cast<qulonglong>(editor_draw_calls))
+    );
 }
 
 void TestsDialog::ResetPerformanceStats() {
@@ -601,6 +616,15 @@ void TestsDialog::ResetPerformanceStats() {
     render_value_->setText("0.00 ms");
     frame_value_->setText("0.00 ms");
     fps_value_->setText("0.0");
+
+    shadow_value_->setText("0.00 ms");
+    main_value_->setText("0.00 ms");
+    editor_value_->setText("0.00 ms");
+
+    draw_calls_value_->setText("0");
+    shadow_draw_calls_value_->setText("0");
+    main_draw_calls_value_->setText("0");
+    editor_draw_calls_value_->setText("0");
 }
 
 void TestsDialog::SetRunning(bool running) {

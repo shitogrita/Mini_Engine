@@ -495,7 +495,14 @@ void EditorWindow::ShowTestsDialog() {
                     stats.update_ms,
                     stats.render_ms,
                     stats.frame_ms,
-                    stats.fps
+                    stats.fps,
+                    stats.shadow_ms,
+                    stats.main_ms,
+                    stats.editor_ms,
+                    stats.draw_calls,
+                    stats.shadow_draw_calls,
+                    stats.main_draw_calls,
+                    stats.editor_draw_calls
                 );
             }
         );
