@@ -1,22 +1,33 @@
-#include "ThreadPoolTest100.h"
+#pragma once
 
-
-#include "Engine/Jobs/ThreadPool.h"
-
-#include <atomic>
-
-bool ThreadPoolTest::Run() {
-	ThreadPool pool(4);
-
-	std::atomic<int> counter = 0;
-
-	for (int i = 0; i < 100; ++i) {
-		pool.Enqueue([&counter] {
-			counter.fetch_add(1);
-		});
-	}
-
-	pool.WaitIdle();
-
-	return counter.load() == 100;
-}
+/**
+ * @brief Проверяет базовую корректность работы ThreadPool.
+ *
+ * ThreadPoolTest запускает набор независимых задач
+ * через несколько worker-потоков
+ * и проверяет, что все поставленные задачи
+ * были выполнены до завершения WaitIdle().
+ *
+ * Тест предназначен для проверки
+ * базовой функциональности ThreadPool,
+ * а не для измерения его производительности.
+ */
+class ThreadPoolTest {
+public:
+	/**
+	 * @brief Запускает тест ThreadPool.
+	 *
+	 * В реализации создаётся ThreadPool
+	 * с несколькими worker-потоками,
+	 * после чего в очередь добавляется
+	 * фиксированное количество задач.
+	 *
+	 * После WaitIdle() проверяется,
+	 * что все задачи были выполнены.
+	 *
+	 * @return true, если ThreadPool
+	 * корректно выполнил все задачи.
+	 * @return false, если итоговая проверка не прошла.
+	 */
+	static bool Run();
+};
