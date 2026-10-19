@@ -8,19 +8,62 @@
 #include <stdexcept>
 #include <utility>
 
-
-Texture2D::Texture2D( const std::filesystem::path& path ) {
-    /*
-     * OpenGL считает начало texture
-     * снизу слева, а большинство изображений —
-     * сверху слева.
+/**
+ * @brief Загружает изображение из файла и создаёт OpenGL 2D texture.
+ *
+ * Изображение декодируется библиотекой stb_image,
+ * после чего полученные pixel data передаются в GPU.
+ *
+ * Последовательность создания texture:
+ *
+ * - включается вертикальное отражение изображения при загрузке;
+ * - изображение декодируется через stbi_load();
+ * - определяется OpenGL format по количеству каналов;
+ * - создаётся OpenGL texture;
+ * - настраиваются wrapping и filtering;
+ * - pixel data передаются через glTexImage2D();
+ * - генерируются mipmaps;
+ * - CPU-копия изображения освобождается.
+ *
+ * Поддерживаются изображения с количеством каналов:
+ *
+ * - 1 — GL_RED;
+ * - 3 — GL_RGB;
+ * - 4 — GL_RGBA.
+ *
+ * Для выполнения OpenGL-операций необходим
+ * активный OpenGL-контекст.
+ *
+ * @param path Путь к файлу изображения.
+ *
+ * @throws std::runtime_error Если stb_image
+ * не смог загрузить изображение
+ * или количество каналов не поддерживается.
+ */
+Texture2D::Texture2D(const std::filesystem::path& path) {
+    /**
+     * Переворачиваем изображение по вертикали
+     * непосредственно во время загрузки через stb_image.
      *
-     * Поэтому переворачиваем изображение
-     * вертикально во время загрузки.
+     * Это приводит порядок строк изображения
+     * в соответствие с используемой системой
+     * текстурных координат.
      */
     stbi_set_flip_vertically_on_load(true);
 
-
+    /**
+     * Загружаем изображение в CPU memory.
+     *
+     * stb_image заполняет:
+     *
+     * - width_;
+     * - height_;
+     * - channels_.
+     *
+     * Последний аргумент 0 означает,
+     * что количество каналов исходного изображения
+     * не преобразуется принудительно.
+     */
     unsigned char* data =
         stbi_load(
             path.string().c_str(),
@@ -30,18 +73,13 @@ Texture2D::Texture2D( const std::filesystem::path& path ) {
             0
         );
 
-
     /**
- * Если stb_image не смог декодировать изображение,
- * сохраняем его диагностическое сообщение.
- *
- * Это важно для различения случаев:
- *
- * - файл отсутствует;
- * - JPEG имеет неподдерживаемый формат;
- * - файл повреждён;
- * - расширение файла не соответствует содержимому.
- */
+     * Если stb_image не смог декодировать изображение,
+     * сохраняем диагностическое сообщение библиотеки.
+     *
+     * Это позволяет получить дополнительную информацию
+     * о причине ошибки загрузки.
+     */
     if (data == nullptr) {
         const char* failure_reason =
             stbi_failure_reason();
@@ -58,19 +96,23 @@ Texture2D::Texture2D( const std::filesystem::path& path ) {
         );
     }
 
+    /**
+     * Определяем OpenGL pixel format
+     * по фактическому количеству каналов изображения.
+     */
     GLenum format = GL_RGB;
-
 
     if (channels_ == 1) {
         format = GL_RED;
-    }
-    else if (channels_ == 3) {
+    } else if (channels_ == 3) {
         format = GL_RGB;
-    }
-    else if (channels_ == 4) {
+    } else if (channels_ == 4) {
         format = GL_RGBA;
-    }
-    else {
+    } else {
+        /**
+         * CPU memory необходимо освободить
+         * перед завершением конструктора с исключением.
+         */
         stbi_image_free(data);
 
         throw std::runtime_error(
@@ -81,24 +123,25 @@ Texture2D::Texture2D( const std::filesystem::path& path ) {
         );
     }
 
-
+    /**
+     * Создаём OpenGL texture object.
+     */
     glGenTextures(
         1,
         &texture_id_
     );
-
 
     glBindTexture(
         GL_TEXTURE_2D,
         texture_id_
     );
 
-
-    /*
-     * Поведение texture coordinates
+    /**
+     * Определяем поведение texture coordinates
      * за пределами диапазона [0, 1].
      *
-     * GL_REPEAT означает повторение texture.
+     * GL_REPEAT повторяет изображение
+     * по соответствующей координатной оси.
      */
     glTexParameteri(
         GL_TEXTURE_2D,
@@ -112,11 +155,9 @@ Texture2D::Texture2D( const std::filesystem::path& path ) {
         GL_REPEAT
     );
 
-
-    /*
-     * Фильтрация при уменьшении texture.
-     *
-     * Используем mipmaps.
+    /**
+     * При уменьшении texture используется
+     * линейная фильтрация между mipmap levels.
      */
     glTexParameteri(
         GL_TEXTURE_2D,
@@ -124,9 +165,9 @@ Texture2D::Texture2D( const std::filesystem::path& path ) {
         GL_LINEAR_MIPMAP_LINEAR
     );
 
-
-    /*
-     * Фильтрация при увеличении texture.
+    /**
+     * При увеличении texture используется
+     * обычная линейная фильтрация.
      */
     glTexParameteri(
         GL_TEXTURE_2D,
@@ -134,10 +175,12 @@ Texture2D::Texture2D( const std::filesystem::path& path ) {
         GL_LINEAR
     );
 
-
-    /*
-     * Передаём пиксели изображения
-     * из RAM в GPU.
+    /**
+     * Передаём pixel data из CPU memory
+     * в OpenGL texture.
+     *
+     * Внутренний формат и формат входных данных
+     * определяются количеством каналов изображения.
      */
     glTexImage2D(
         GL_TEXTURE_2D,
@@ -153,38 +196,40 @@ Texture2D::Texture2D( const std::filesystem::path& path ) {
         data
     );
 
-
-    /*
-     * Создаём уменьшенные версии texture.
-     *
-     * Они используются, когда объект находится
-     * далеко от Camera.
+    /**
+     * Генерируем mipmap chain
+     * для созданной texture.
      */
     glGenerateMipmap(
         GL_TEXTURE_2D
     );
 
-
-    /*
-     * После glTexImage2D данные изображения
-     * уже находятся в GPU.
+    /**
+     * После glTexImage2D() pixel data
+     * уже переданы в OpenGL.
      *
-     * CPU-копия больше не нужна.
+     * CPU-копия изображения больше не требуется.
      */
     stbi_image_free(
         data
     );
 
-
+    /**
+     * Снимаем binding созданной 2D texture.
+     */
     glBindTexture(
         GL_TEXTURE_2D,
         0
     );
 }
 
-
-Texture2D::~Texture2D()
-{
+/**
+ * @brief Освобождает принадлежащую объекту OpenGL texture.
+ *
+ * Если texture_id_ содержит корректный OpenGL handle,
+ * ресурс удаляется через glDeleteTextures().
+ */
+Texture2D::~Texture2D() {
     if (texture_id_ != 0) {
         glDeleteTextures(
             1,
@@ -193,47 +238,77 @@ Texture2D::~Texture2D()
     }
 }
 
-
-Texture2D::Texture2D(
-    Texture2D&& other
-) noexcept
+/**
+ * @brief Передаёт владение OpenGL texture
+ * от другого объекта Texture2D.
+ *
+ * Перемещаются:
+ *
+ * - texture_id_;
+ * - width_;
+ * - height_;
+ * - channels_.
+ *
+ * std::exchange() одновременно получает прежнее значение
+ * и сбрасывает соответствующее поле other в 0.
+ *
+ * Благодаря этому перемещённый объект
+ * больше не владеет переданной OpenGL texture.
+ *
+ * @param other Texture2D,
+ * ресурс которого передаётся текущему объекту.
+ */
+Texture2D::Texture2D(Texture2D&& other) noexcept
     : texture_id_(
-        std::exchange(
-            other.texture_id_,
-            0
-        )
-    ),
+          std::exchange(
+              other.texture_id_,
+              0
+          )
+      ),
       width_(
-        std::exchange(
-            other.width_,
-            0
-        )
-    ),
+          std::exchange(
+              other.width_,
+              0
+          )
+      ),
       height_(
-        std::exchange(
-            other.height_,
-            0
-        )
-    ),
+          std::exchange(
+              other.height_,
+              0
+          )
+      ),
       channels_(
-        std::exchange(
-            other.channels_,
-            0
-        )
-    )
-{
+          std::exchange(
+              other.channels_,
+              0
+          )
+      ) {
 }
 
-
-Texture2D& Texture2D::operator=(
-    Texture2D&& other
-) noexcept
-{
+/**
+ * @brief Перемещающий оператор присваивания.
+ *
+ * Перед получением нового ресурса
+ * текущая OpenGL texture удаляется,
+ * если она существует.
+ *
+ * После этого владение texture и её параметрами
+ * передаётся от other текущему объекту.
+ *
+ * @param other Texture2D,
+ * ресурс которого необходимо получить.
+ *
+ * @return Ссылка на текущий Texture2D.
+ */
+Texture2D& Texture2D::operator=(Texture2D&& other) noexcept {
     if (this == &other) {
         return *this;
     }
 
-
+    /**
+     * Освобождаем OpenGL texture,
+     * которой текущий объект владел до присваивания.
+     */
     if (texture_id_ != 0) {
         glDeleteTextures(
             1,
@@ -241,13 +316,18 @@ Texture2D& Texture2D::operator=(
         );
     }
 
-
+    /**
+     * Передаём владение OpenGL handle.
+     */
     texture_id_ =
         std::exchange(
             other.texture_id_,
             0
         );
 
+    /**
+     * Передаём характеристики изображения.
+     */
     width_ =
         std::exchange(
             other.width_,
@@ -266,15 +346,22 @@ Texture2D& Texture2D::operator=(
             0
         );
 
-
     return *this;
 }
 
-
-void Texture2D::Bind(
-    unsigned int slot
-) const
-{
+/**
+ * @brief Привязывает texture к указанному texture unit.
+ *
+ * Сначала активируется:
+ *
+ * GL_TEXTURE0 + slot
+ *
+ * после чего texture_id_ привязывается
+ * как GL_TEXTURE_2D.
+ *
+ * @param slot Номер texture unit.
+ */
+void Texture2D::Bind(unsigned int slot) const {
     glActiveTexture(
         GL_TEXTURE0 +
         slot
@@ -286,26 +373,44 @@ void Texture2D::Bind(
     );
 }
 
-
-unsigned int Texture2D::GetId() const
-{
+/**
+ * @brief Возвращает OpenGL ID texture.
+ *
+ * @return OpenGL texture handle.
+ */
+unsigned int Texture2D::GetId() const {
     return texture_id_;
 }
 
-
-int Texture2D::GetWidth() const
-{
+/**
+ * @brief Возвращает ширину загруженного изображения.
+ *
+ * @return Ширина texture в пикселях.
+ */
+int Texture2D::GetWidth() const {
     return width_;
 }
 
-
-int Texture2D::GetHeight() const
-{
+/**
+ * @brief Возвращает высоту загруженного изображения.
+ *
+ * @return Высота texture в пикселях.
+ */
+int Texture2D::GetHeight() const {
     return height_;
 }
 
-
-int Texture2D::GetChannels() const
-{
+/**
+ * @brief Возвращает количество каналов исходного изображения.
+ *
+ * Для поддерживаемых изображений значение может быть:
+ *
+ * - 1;
+ * - 3;
+ * - 4.
+ *
+ * @return Количество каналов изображения.
+ */
+int Texture2D::GetChannels() const {
     return channels_;
 }
