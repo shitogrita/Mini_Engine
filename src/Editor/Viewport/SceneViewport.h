@@ -349,6 +349,8 @@ private:
      */
     void FinishCurrentBenchmarkCase();
 
+    void RestoreSharedPrimitiveMeshes();
+
 private:
     QLabel* title_label_ = nullptr;
     QLabel* content_label_ = nullptr;

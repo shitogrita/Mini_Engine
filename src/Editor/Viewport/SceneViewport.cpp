@@ -402,6 +402,10 @@ SceneViewport::~SceneViewport() {
 
         texture_manager_.Clear();
 
+        cube_mesh_.reset();
+        plane_mesh_.reset();
+        sphere_mesh_.reset();
+
         /*
          * Editor Grid и мировые оси.
          */
@@ -4083,7 +4087,21 @@ bool SceneViewport::LoadScene(const QString& file_path) {
 
     makeCurrent();
 
-    const bool loaded = SceneSerializer::Load(scene_, file_path.toStdString(), texture_manager_);
+    const bool loaded = SceneSerializer::Load(
+        scene_,
+        file_path.toStdString(),
+        texture_manager_
+    );
+
+    if (loaded) {
+        /**
+         * SceneSerializer восстанавливает логическое состояние объектов,
+         * но обычные Primitive должны использовать общие GPU Mesh.
+         *
+         * Это необходимо для batching и GPU Instancing.
+         */
+        RestoreSharedPrimitiveMeshes();
+    }
 
     doneCurrent();
 
@@ -4102,6 +4120,7 @@ bool SceneViewport::LoadScene(const QString& file_path) {
 
     UpdateProjectionTitle();
     UpdateCoordinatesLabel();
+    NotifySelectionChanged();
 
     setFocus();
     update();
@@ -4433,4 +4452,49 @@ void SceneViewport::SetBenchmarkSuiteProgressCallback(std::function<void(std::si
 void SceneViewport::SetBenchmarkSuiteFinishedCallback(std::function<void()> callback) {
     benchmark_suite_finished_callback_ =
         std::move(callback);
+}
+
+void SceneViewport::RestoreSharedPrimitiveMeshes() {
+    for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
+        if (!object) {
+            continue;
+        }
+
+        switch (object->GetType()) {
+            case SceneObject::Type::Cube:
+                if (!cube_mesh_) {
+                    cube_mesh_ = std::make_shared<Mesh>(
+                        PrimitiveGenerator::CreateCube()
+                    );
+                }
+
+                object->SetMesh(cube_mesh_);
+                break;
+
+            case SceneObject::Type::Plane:
+                if (!plane_mesh_) {
+                    plane_mesh_ = std::make_shared<Mesh>(
+                        PrimitiveGenerator::CreatePlane()
+                    );
+                }
+
+                object->SetMesh(plane_mesh_);
+                break;
+
+            case SceneObject::Type::Sphere:
+                if (!sphere_mesh_) {
+                    sphere_mesh_ = std::make_shared<Mesh>(
+                        PrimitiveGenerator::CreateSphere()
+                    );
+                }
+
+                object->SetMesh(sphere_mesh_);
+                break;
+
+            case SceneObject::Type::ImportedModel:
+            case SceneObject::Type::PointLight:
+            case SceneObject::Type::Empty:
+                break;
+        }
+    }
 }
