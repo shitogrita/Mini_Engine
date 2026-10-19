@@ -1011,6 +1011,12 @@ Renderer знает не только общее количество draw calls
 
 ---
 
+### Сборка Документации 
+
+```bash
+    cmake --build build --target docs
+```
+
 <p align="center">
   <strong>Mini Engine</strong><br>
   C++20 · Multithreading · OpenGL · Qt · GPU Instancing · Measurable Performance

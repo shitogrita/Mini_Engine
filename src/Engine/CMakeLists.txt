@@ -60,8 +60,8 @@ add_library(
         Scene/Transform.h
         Scene/BoundingBox.cpp
         Scene/BoundingBox.h
-        Scene/PointLight.h
         Scene/PointLight.cpp
+        Scene/PointLight.h
         Scene/SceneSerializer.cpp
         Scene/SceneSerializer.h
         Scene/SceneUpdateSystem.cpp
@@ -72,10 +72,10 @@ add_library(
         Jobs/ThreadPool.h
 
         Tests/TestScene.h
-        Tests/Cube1kTest.h
         Tests/Cube1kTest.cpp
-        Tests/ThreadPoolTest100.h
+        Tests/Cube1kTest.h
         Tests/ThreadPoolTest100.cpp
+        Tests/ThreadPoolTest100.h
         Tests/CubeStressTest.cpp
         Tests/CubeStressTest.h
         Tests/BenchmarkCsvWriter.cpp
@@ -115,6 +115,8 @@ target_link_libraries(
         glfw
 )
 
+
+# macOS
 
 if(APPLE)
     target_compile_definitions(
