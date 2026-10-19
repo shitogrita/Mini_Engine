@@ -1715,6 +1715,10 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     if (!test_running_) {
         performance_accumulator_ += frame_ms;
 
+        if (performance_accumulator_ < 100.0) {
+            return;
+        }
+
         PerformanceStats stats;
 
         stats.object_count =
@@ -1761,6 +1765,7 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
             stats
         );
 
+        performance_accumulator_ = 0.0;
 
         return;
     }
