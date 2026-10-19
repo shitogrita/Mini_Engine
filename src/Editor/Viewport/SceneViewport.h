@@ -38,6 +38,15 @@ class QWheelEvent;
 /**
  * @brief Итоговые показатели одного benchmark.
  */
+/**
+ * @brief Итоговые показатели производительности одного измерения.
+ *
+ * processing_fps показывает потенциальную скорость обработки кадров:
+ *
+ * processing_fps = 1000 / frame_ms
+ *
+ * Это не фактическая частота обновления QOpenGLWidget.
+ */
 struct PerformanceStats {
     std::size_t object_count = 0;
     std::size_t worker_count = 1;
@@ -45,7 +54,7 @@ struct PerformanceStats {
     double update_ms = 0.0;
     double render_ms = 0.0;
     double frame_ms = 0.0;
-    double fps = 0.0;
+    double processing_fps = 0.0;
 
     double shadow_ms = 0.0;
     double main_ms = 0.0;

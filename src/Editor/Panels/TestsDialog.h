@@ -26,7 +26,7 @@ public:
         double update_ms,
         double render_ms,
         double frame_ms,
-        double fps,
+        double processing_fps,
         double shadow_ms,
         double main_ms,
         double editor_ms,

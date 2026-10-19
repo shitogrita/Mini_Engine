@@ -449,7 +449,7 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     performance_layout->addWidget(create_name_label("Shadow Draws:"), 4, 2);
     performance_layout->addWidget(shadow_draw_calls_value_, 4, 3);
 
-    performance_layout->addWidget(create_name_label("FPS:"), 5, 0);
+    performance_layout->addWidget(create_name_label("Processing FPS:"), 5, 0);
     performance_layout->addWidget(fps_value_, 5, 1);
 
     performance_layout->addWidget(create_name_label("Main Draws:"), 5, 2);
@@ -554,57 +554,109 @@ void TestsDialog::SetStopTestCallback(std::function<void()> callback) {
     stop_test_callback_ = std::move(callback);
 }
 
-void TestsDialog::SetPerformanceStats(std::size_t object_count, std::size_t worker_count, double update_ms, double render_ms, double frame_ms, double fps, double shadow_ms, double main_ms, double editor_ms, std::size_t draw_calls, std::size_t shadow_draw_calls, std::size_t main_draw_calls, std::size_t editor_draw_calls) {
+void TestsDialog::SetPerformanceStats(std::size_t object_count, std::size_t worker_count, double update_ms, double render_ms, double frame_ms, double processing_fps, double shadow_ms, double main_ms, double editor_ms, std::size_t draw_calls, std::size_t shadow_draw_calls, std::size_t main_draw_calls, std::size_t editor_draw_calls) {
     objects_value_->setText(
-        QString::number(static_cast<qulonglong>(object_count))
+        QString::number(
+            static_cast<qulonglong>(
+                object_count
+            )
+        )
     );
 
     workers_value_->setText(
-        QString::number(static_cast<qulonglong>(worker_count))
+        QString::number(
+            static_cast<qulonglong>(
+                worker_count
+            )
+        )
     );
 
     update_value_->setText(
-        QString::number(update_ms, 'f', 2) + " ms"
+        QString::number(
+            update_ms,
+            'f',
+            2
+        ) + " ms"
     );
 
     render_value_->setText(
-        QString::number(render_ms, 'f', 2) + " ms"
+        QString::number(
+            render_ms,
+            'f',
+            2
+        ) + " ms"
     );
 
     frame_value_->setText(
-        QString::number(frame_ms, 'f', 2) + " ms"
+        QString::number(
+            frame_ms,
+            'f',
+            2
+        ) + " ms"
     );
 
     fps_value_->setText(
-        QString::number(fps, 'f', 1)
+        QString::number(
+            processing_fps,
+            'f',
+            1
+        )
     );
 
     shadow_value_->setText(
-        QString::number(shadow_ms, 'f', 2) + " ms"
+        QString::number(
+            shadow_ms,
+            'f',
+            2
+        ) + " ms"
     );
 
     main_value_->setText(
-        QString::number(main_ms, 'f', 2) + " ms"
+        QString::number(
+            main_ms,
+            'f',
+            2
+        ) + " ms"
     );
 
     editor_value_->setText(
-        QString::number(editor_ms, 'f', 2) + " ms"
+        QString::number(
+            editor_ms,
+            'f',
+            2
+        ) + " ms"
     );
 
     draw_calls_value_->setText(
-        QString::number(static_cast<qulonglong>(draw_calls))
+        QString::number(
+            static_cast<qulonglong>(
+                draw_calls
+            )
+        )
     );
 
     shadow_draw_calls_value_->setText(
-        QString::number(static_cast<qulonglong>(shadow_draw_calls))
+        QString::number(
+            static_cast<qulonglong>(
+                shadow_draw_calls
+            )
+        )
     );
 
     main_draw_calls_value_->setText(
-        QString::number(static_cast<qulonglong>(main_draw_calls))
+        QString::number(
+            static_cast<qulonglong>(
+                main_draw_calls
+            )
+        )
     );
 
     editor_draw_calls_value_->setText(
-        QString::number(static_cast<qulonglong>(editor_draw_calls))
+        QString::number(
+            static_cast<qulonglong>(
+                editor_draw_calls
+            )
+        )
     );
 }
 

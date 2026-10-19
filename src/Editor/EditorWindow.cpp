@@ -495,7 +495,7 @@ void EditorWindow::ShowTestsDialog() {
                     stats.update_ms,
                     stats.render_ms,
                     stats.frame_ms,
-                    stats.fps,
+                    stats.processing_fps,
                     stats.shadow_ms,
                     stats.main_ms,
                     stats.editor_ms,

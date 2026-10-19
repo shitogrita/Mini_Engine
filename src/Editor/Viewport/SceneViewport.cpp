@@ -1709,13 +1709,20 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         ).count();
 
     const double frame_ms =
-    std::chrono::duration<double, std::milli>(
-        frame_end - frame_start
-    ).count();
+        std::chrono::duration<double, std::milli>(
+            frame_end - frame_start
+        ).count();
 
     const RenderStats& render_stats =
-    renderer_.GetRenderStats();
+        renderer_.GetRenderStats();
 
+    /**
+     * В обычной пользовательской Scene показываем
+     * текущую статистику без запуска benchmark.
+     *
+     * Обновление UI ограничиваем примерно десятью
+     * обновлениями в секунду.
+     */
     if (!test_running_) {
         performance_accumulator_ += frame_ms;
 
@@ -1739,7 +1746,7 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         stats.frame_ms =
             frame_ms;
 
-        stats.fps =
+        stats.processing_fps =
             frame_ms > 0.0
                 ? 1000.0 / frame_ms
                 : 0.0;
@@ -1782,7 +1789,7 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
      * Warm-up.
      *
      * Используем настоящее wall-clock время,
-     * а не сумму frame_ms.
+     * а не сумму времени обработки кадров.
      */
     if (!benchmark_measuring_) {
         if (
@@ -1810,7 +1817,11 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         }
 
         /**
-         * Две реальные секунды warm-up завершены.
+         * Warm-up завершён.
+         *
+         * Полностью очищаем накопители,
+         * чтобы warm-up гарантированно
+         * не влиял на итоговые значения.
          */
         benchmark_measuring_ = true;
 
@@ -1832,6 +1843,27 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         performance_frame_sum_ms_ =
             0.0;
 
+        performance_shadow_sum_ms_ =
+            0.0;
+
+        performance_main_sum_ms_ =
+            0.0;
+
+        performance_editor_sum_ms_ =
+            0.0;
+
+        performance_draw_calls_sum_ =
+            0;
+
+        performance_shadow_draw_calls_sum_ =
+            0;
+
+        performance_main_draw_calls_sum_ =
+            0;
+
+        performance_editor_draw_calls_sum_ =
+            0;
+
         performance_sample_count_ =
             0;
 
@@ -1839,7 +1871,7 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     }
 
     /**
-     * Накапливаем значения текущего кадра.
+     * Накапливаем показатели текущего кадра.
      */
     performance_update_sum_ms_ +=
         update_ms;
@@ -1851,7 +1883,7 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         frame_ms;
 
     performance_shadow_sum_ms_ +=
-    render_stats.shadow_ms;
+        render_stats.shadow_ms;
 
     performance_main_sum_ms_ +=
         render_stats.main_ms;
@@ -1877,7 +1909,8 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     ++performance_sample_count_;
 
     /**
-     * Measurement длится реальные пять секунд.
+     * Продолжительность measurement определяется
+     * по реальному wall-clock времени.
      */
     benchmark_measurement_elapsed_ms_ =
         std::chrono::duration<double, std::milli>(
@@ -1914,21 +1947,18 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         sample_count;
 
     /**
-     * Потенциальный FPS движка.
+     * Потенциальная скорость обработки кадров.
      *
-     * Не используем количество repaint Qt
-     * за wall-clock окно.
+     * Это не реальная частота repaint QOpenGLWidget.
      */
-    const double average_fps =
+    const double average_processing_fps =
         average_frame_ms > 0.0
             ? 1000.0 / average_frame_ms
             : 0.0;
 
-    PerformanceStats stats;
-
     const double average_shadow_ms =
-    performance_shadow_sum_ms_ /
-    sample_count;
+        performance_shadow_sum_ms_ /
+        sample_count;
 
     const double average_main_ms =
         performance_main_sum_ms_ /
@@ -1941,7 +1971,9 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     const std::size_t average_draw_calls =
         static_cast<std::size_t>(
             std::llround(
-                static_cast<double>(performance_draw_calls_sum_) /
+                static_cast<double>(
+                    performance_draw_calls_sum_
+                ) /
                 sample_count
             )
         );
@@ -1949,7 +1981,9 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     const std::size_t average_shadow_draw_calls =
         static_cast<std::size_t>(
             std::llround(
-                static_cast<double>(performance_shadow_draw_calls_sum_) /
+                static_cast<double>(
+                    performance_shadow_draw_calls_sum_
+                ) /
                 sample_count
             )
         );
@@ -1957,7 +1991,9 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     const std::size_t average_main_draw_calls =
         static_cast<std::size_t>(
             std::llround(
-                static_cast<double>(performance_main_draw_calls_sum_) /
+                static_cast<double>(
+                    performance_main_draw_calls_sum_
+                ) /
                 sample_count
             )
         );
@@ -1965,10 +2001,14 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     const std::size_t average_editor_draw_calls =
         static_cast<std::size_t>(
             std::llround(
-                static_cast<double>(performance_editor_draw_calls_sum_) /
+                static_cast<double>(
+                    performance_editor_draw_calls_sum_
+                ) /
                 sample_count
             )
         );
+
+    PerformanceStats stats;
 
     stats.object_count =
         scene_.GetObjects().size();
@@ -1988,11 +2028,11 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     stats.frame_ms =
         average_frame_ms;
 
-    stats.fps =
-        average_fps;
+    stats.processing_fps =
+        average_processing_fps;
 
     stats.shadow_ms =
-    average_shadow_ms;
+        average_shadow_ms;
 
     stats.main_ms =
         average_main_ms;
@@ -2013,18 +2053,18 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         average_editor_draw_calls;
 
     /**
-     * Показываем итоговый результат
-     * текущего теста в TestsDialog.
+     * Передаём итоговые показатели
+     * текущего benchmark в TestsDialog.
      */
     performance_stats_callback_(
         stats
     );
 
     /**
-     * Определяем номер повторного прогона.
+     * Для обычного Run Test номер прогона равен 1.
      *
-     * Для обычного одиночного Run Test
-     * run всегда равен 1.
+     * Для Full Benchmark используется run_index
+     * текущего BenchmarkCase.
      */
     std::size_t run_index = 1;
 
@@ -2040,8 +2080,8 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     }
 
     /**
-     * Full Benchmark и обычный Run Test
-     * сохраняются в разные файлы.
+     * Full Benchmark и одиночный Run Test
+     * сохраняются в разные CSV.
      */
     const std::filesystem::path benchmark_file =
         std::filesystem::current_path() /
@@ -2060,7 +2100,14 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
         stats.update_ms,
         stats.render_ms,
         stats.frame_ms,
-        stats.fps,
+        stats.processing_fps,
+        stats.shadow_ms,
+        stats.main_ms,
+        stats.editor_ms,
+        stats.draw_calls,
+        stats.shadow_draw_calls,
+        stats.main_draw_calls,
+        stats.editor_draw_calls,
         performance_sample_count_
     );
 
@@ -2068,11 +2115,10 @@ void SceneViewport::UpdatePerformanceStats(const std::chrono::steady_clock::time
     benchmark_measuring_ = false;
 
     /**
-     * Если выполняется Full Benchmark,
-     * переходим к следующему BenchmarkCase.
+     * Full Benchmark автоматически
+     * переходит к следующей конфигурации.
      *
-     * singleShot(0) нужен, чтобы не уничтожать
-     * текущую Scene прямо внутри paintGL().
+     * Переход выполняется после завершения paintGL().
      */
     if (benchmark_suite_running_) {
         QTimer::singleShot(
