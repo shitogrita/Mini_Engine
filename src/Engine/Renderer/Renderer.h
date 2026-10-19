@@ -5,6 +5,8 @@
 #include "Engine/Renderer/RenderStats.h"
 #include "Engine/Renderer/Shader.h"
 
+#include <cstddef>
+
 /**
  * @brief Низкоуровневый OpenGL Renderer.
  *
@@ -85,6 +87,19 @@ public:
      * @param mvp Model-View-Projection Matrix.
      */
     void Draw(const Mesh& mesh, const Shader& shader, const Matrix4& mvp);
+
+    /**
+	 * @brief Рисует несколько экземпляров одного Mesh одним draw call.
+	 *
+	 * Перед вызовом Mesh должен содержать instance matrices,
+	 * загруженные через Mesh::SetInstanceMatrices().
+	 *
+	 * @param mesh Общая геометрия экземпляров.
+	 * @param shader Shader program.
+	 * @param view_projection общая View-Projection Matrix.
+	 * @param instance_count Количество экземпляров.
+	 */
+    void DrawInstanced(const Mesh& mesh, const Shader& shader, const Matrix4& view_projection, std::size_t instance_count);
 
     /**
      * @brief Рисует Mesh линиями.

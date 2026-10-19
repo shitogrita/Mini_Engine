@@ -127,6 +127,11 @@ void Renderer::SetViewport(int width, int height) {
 void Renderer::Draw(const Mesh& mesh, const Shader& shader, const Matrix4& mvp) {
     shader.Use();
 
+    shader.SetInt(
+        "uUseInstancing",
+        0
+    );
+
     shader.SetMat4(
         "uMVP",
         mvp
@@ -158,6 +163,11 @@ void Renderer::Draw(const Mesh& mesh, const Shader& shader, const Matrix4& mvp) 
  */
 void Renderer::DrawLines(const Mesh& mesh, const Shader& shader, const Matrix4& mvp, float line_width) {
     shader.Use();
+
+    shader.SetInt(
+        "uUseInstancing",
+        0
+    );
 
     shader.SetMat4(
         "uMVP",
@@ -226,5 +236,51 @@ void Renderer::BindFramebuffer(unsigned int framebuffer_id) {
     glBindFramebuffer(
         GL_FRAMEBUFFER,
         framebuffer_id
+    );
+}
+void Renderer::DrawInstanced(const Mesh& mesh, const Shader& shader, const Matrix4& view_projection, std::size_t instance_count) {
+    if (instance_count == 0) {
+        return;
+    }
+
+    shader.Use();
+
+    shader.SetInt(
+        "uUseInstancing",
+        1
+    );
+
+    shader.SetMat4(
+        "uViewProjection",
+        view_projection
+    );
+
+    mesh.Bind();
+
+    glDrawElementsInstanced(
+        GL_TRIANGLES,
+        static_cast<GLsizei>(
+            mesh.GetIndexCount()
+        ),
+        GL_UNSIGNED_INT,
+        nullptr,
+        static_cast<GLsizei>(
+            instance_count
+        )
+    );
+
+    RegisterDrawCall();
+
+    /**
+     * После instanced draw выключаем attributes 4-7.
+     *
+     * Это важно, потому что тот же Mesh позже
+     * может быть отрисован обычным Draw().
+     */
+    mesh.DisableInstanceAttributes();
+
+    shader.SetInt(
+        "uUseInstancing",
+        0
     );
 }

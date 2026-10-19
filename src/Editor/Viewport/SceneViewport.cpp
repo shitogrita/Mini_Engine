@@ -1223,65 +1223,383 @@ void SceneViewport::RenderGridAndAxes(const Matrix4& view_projection) {
 }
 
 void SceneViewport::RenderSceneObjects(const Matrix4& view, const Matrix4& projection) {
-    shader_->SetInt("uLightingEnabled", lighting_enabled_ ? 1 : 0);
+    shader_->SetInt(
+        "uLightingEnabled",
+        lighting_enabled_ ? 1 : 0
+    );
 
+    const Matrix4 view_projection =
+        AffineTransformation::Multiply4(
+            projection,
+            view
+        );
+
+    /**
+     * Одна batch представляет набор SceneObject,
+     * которые можно отрисовать одним instanced draw call.
+     *
+     * Для объединения объекты должны использовать:
+     * - один Mesh;
+     * - одинаковый Material.
+     */
+    struct InstanceBatch {
+        const Mesh* mesh = nullptr;
+        const Material* material = nullptr;
+
+        std::vector<Matrix4> model_matrices;
+    };
+
+    std::vector<InstanceBatch> batches;
+
+    /**
+     * Материалы должны совпадать,
+     * иначе один draw call не сможет корректно
+     * использовать общие material uniforms.
+     */
+    const auto materials_equal = [](const Material& first, const Material& second) {
+        const Vec3 first_color =
+            first.GetColor();
+
+        const Vec3 second_color =
+            second.GetColor();
+
+        if (
+            first_color.x != second_color.x ||
+            first_color.y != second_color.y ||
+            first_color.z != second_color.z
+        ) {
+            return false;
+        }
+
+        if (first.GetAmbientStrength() != second.GetAmbientStrength()) {
+            return false;
+        }
+
+        if (first.GetDiffuseStrength() != second.GetDiffuseStrength()) {
+            return false;
+        }
+
+        if (first.GetSpecularStrength() != second.GetSpecularStrength()) {
+            return false;
+        }
+
+        if (first.GetShininess() != second.GetShininess()) {
+            return false;
+        }
+
+        if (first.HasDiffuseTexture() != second.HasDiffuseTexture()) {
+            return false;
+        }
+
+        if (
+            first.HasDiffuseTexture() &&
+            first.GetDiffuseTexture() != second.GetDiffuseTexture()
+        ) {
+            return false;
+        }
+
+        return true;
+    };
+
+    /**
+     * Передаёт Material в основной shader.
+     */
+    const auto apply_material = [this](const Material& material, bool selected) {
+        Vec3 render_color =
+            material.GetColor();
+
+        if (selected) {
+            render_color.x =
+                std::min(
+                    render_color.x + 0.15f,
+                    1.0f
+                );
+
+            render_color.y =
+                std::min(
+                    render_color.y + 0.10f,
+                    1.0f
+                );
+        }
+
+        shader_->SetVec4(
+            "uColor",
+            Vec4{
+                render_color.x,
+                render_color.y,
+                render_color.z,
+                1.0f
+            }
+        );
+
+        shader_->SetFloat(
+            "uAmbientStrength",
+            material.GetAmbientStrength()
+        );
+
+        shader_->SetFloat(
+            "uDiffuseStrength",
+            material.GetDiffuseStrength()
+        );
+
+        shader_->SetFloat(
+            "uSpecularStrength",
+            material.GetSpecularStrength()
+        );
+
+        shader_->SetFloat(
+            "uShininess",
+            material.GetShininess()
+        );
+
+        if (material.HasDiffuseTexture()) {
+            material.GetDiffuseTexture()->Bind(0);
+
+            shader_->SetInt(
+                "uDiffuseTexture",
+                0
+            );
+
+            shader_->SetInt(
+                "uHasDiffuseTexture",
+                1
+            );
+        } else {
+            shader_->SetInt(
+                "uHasDiffuseTexture",
+                0
+            );
+        }
+    };
+
+    /**
+     * Старый одиночный render path.
+     *
+     * Он остаётся нужен для:
+     * - выбранного объекта;
+     * - импортированных моделей;
+     * - любых объектов, которые сейчас нельзя batch-ить.
+     */
+    const auto draw_single = [this, &view, &projection, &apply_material](const std::shared_ptr<SceneObject>& object, const Mesh& mesh, const Material& material) {
+        const Matrix4 model =
+            object->
+                GetTransform().
+                GetModelMatrix();
+
+        shader_->SetMat4(
+            "uModel",
+            model
+        );
+
+        const Matrix4 view_model =
+            AffineTransformation::Multiply4(
+                view,
+                model
+            );
+
+        const Matrix4 mvp =
+            AffineTransformation::Multiply4(
+                projection,
+                view_model
+            );
+
+        apply_material(
+            material,
+            object == selected_object_
+        );
+
+        renderer_.Draw(
+            mesh,
+            *shader_,
+            mvp
+        );
+    };
+
+    /**
+     * Первый проход.
+     *
+     * Разделяем объекты на:
+     * - обычный старый render path;
+     * - кандидатов на instancing.
+     */
     for (const std::shared_ptr<SceneObject>& object : scene_.GetObjects()) {
         if (!object || !object->HasMesh()) {
             continue;
         }
 
-        const Matrix4 model = object->GetTransform().GetModelMatrix();
-        shader_->SetMat4("uModel", model);
-
-        const Matrix4 view_model = AffineTransformation::Multiply4(view, model);
-        const Matrix4 mvp = AffineTransformation::Multiply4(projection, view_model);
-
-        const auto draw_part = [this, &object, &mvp](const Mesh& mesh, const Material& material) {
-            Vec3 render_color = material.GetColor();
-
-            if (object == selected_object_) {
-                render_color.x = std::min(render_color.x + 0.15f, 1.0f);
-                render_color.y = std::min(render_color.y + 0.10f, 1.0f);
-            }
-
-            shader_->SetVec4("uColor", Vec4{render_color.x, render_color.y, render_color.z, 1.0f});
-            shader_->SetFloat("uAmbientStrength", material.GetAmbientStrength());
-            shader_->SetFloat("uDiffuseStrength", material.GetDiffuseStrength());
-            shader_->SetFloat("uSpecularStrength", material.GetSpecularStrength());
-            shader_->SetFloat("uShininess", material.GetShininess());
-
-            if (material.HasDiffuseTexture()) {
-                material.GetDiffuseTexture()->Bind(0);
-                shader_->SetInt("uDiffuseTexture", 0);
-                shader_->SetInt("uHasDiffuseTexture", 1);
-            } else {
-                shader_->SetInt("uHasDiffuseTexture", 0);
-            }
-
-            renderer_.Draw(mesh, *shader_, mvp);
-        };
-
+        /**
+         * ImportedModel может состоять из нескольких
+         * Mesh + Material.
+         *
+         * На первом этапе instancing его не меняем.
+         */
         if (object->HasRenderParts()) {
             for (const SceneObject::SceneRenderPart& part : object->GetRenderParts()) {
                 if (!part.mesh) {
                     continue;
                 }
 
-                draw_part(*part.mesh, part.material);
+                draw_single(
+                    object,
+                    *part.mesh,
+                    part.material
+                );
             }
 
             continue;
         }
 
-        const std::shared_ptr<const Mesh> mesh = object->GetMesh();
+        const std::shared_ptr<const Mesh> mesh =
+            object->GetMesh();
 
-        if (mesh) {
-            draw_part(*mesh, object->GetMaterial());
+        if (!mesh) {
+            continue;
         }
+
+        const Material& material =
+            object->GetMaterial();
+
+        /**
+         * Selected Object рисуем отдельно,
+         * потому что его цвет изменяется для подсветки.
+         */
+        if (object == selected_object_) {
+            draw_single(
+                object,
+                *mesh,
+                material
+            );
+
+            continue;
+        }
+
+        InstanceBatch* matching_batch =
+            nullptr;
+
+        for (InstanceBatch& batch : batches) {
+            if (batch.mesh != mesh.get()) {
+                continue;
+            }
+
+            if (!batch.material) {
+                continue;
+            }
+
+            if (!materials_equal(*batch.material, material)) {
+                continue;
+            }
+
+            matching_batch =
+                &batch;
+
+            break;
+        }
+
+        if (!matching_batch) {
+            batches.push_back(
+                InstanceBatch{
+                    mesh.get(),
+                    &material,
+                    {}
+                }
+            );
+
+            matching_batch =
+                &batches.back();
+        }
+
+        matching_batch->model_matrices.push_back(
+            object->
+                GetTransform().
+                GetModelMatrix()
+        );
     }
 
-    shader_->SetInt("uLightingEnabled", 0);
-    shader_->SetInt("uHasDiffuseTexture", 0);
+    /**
+     * Второй проход.
+     *
+     * Каждая batch выполняется одним draw call,
+     * если внутри находится больше одного instance.
+     */
+    for (InstanceBatch& batch : batches) {
+        if (
+            !batch.mesh ||
+            !batch.material ||
+            batch.model_matrices.empty()
+        ) {
+            continue;
+        }
+
+        /**
+         * Один объект нет смысла отправлять
+         * через instanced draw.
+         */
+        if (batch.model_matrices.size() == 1) {
+            const Matrix4& model =
+                batch.model_matrices.front();
+
+            shader_->SetMat4(
+                "uModel",
+                model
+            );
+
+            const Matrix4 view_model =
+                AffineTransformation::Multiply4(
+                    view,
+                    model
+                );
+
+            const Matrix4 mvp =
+                AffineTransformation::Multiply4(
+                    projection,
+                    view_model
+                );
+
+            apply_material(
+                *batch.material,
+                false
+            );
+
+            renderer_.Draw(
+                *batch.mesh,
+                *shader_,
+                mvp
+            );
+
+            continue;
+        }
+
+        apply_material(
+            *batch.material,
+            false
+        );
+
+        batch.mesh->SetInstanceMatrices(
+            batch.model_matrices
+        );
+
+        renderer_.DrawInstanced(
+            *batch.mesh,
+            *shader_,
+            view_projection,
+            batch.model_matrices.size()
+        );
+    }
+
+    shader_->SetInt(
+        "uUseInstancing",
+        0
+    );
+
+    shader_->SetInt(
+        "uLightingEnabled",
+        0
+    );
+
+    shader_->SetInt(
+        "uHasDiffuseTexture",
+        0
+    );
 }
 
 void SceneViewport::RenderPointLightMarkers(const Matrix4& view, const Matrix4& projection) {
