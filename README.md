@@ -1,13 +1,22 @@
 # Mini Engine
+<div align="center">
 
-<p align="center">
+<p>
   <strong>Real-time 3D engine and editor focused on multithreaded scene processing, OpenGL rendering and measurable performance.</strong>
 </p>
 
-<p align="center">
+<p>
   C++20 · OpenGL 3.3 Core · GLSL · Qt 6 · CMake · Multithreading · GPU Instancing
 </p>
 
+<p>
+  <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" height="20">
+  <img src="https://img.shields.io/badge/Qt-6-41CD52?logo=qt&logoColor=white" height="20">
+  <img src="https://img.shields.io/badge/OpenGL-3.3_Core-5586A4?logo=opengl&logoColor=white" height="20">
+  <img src="https://img.shields.io/badge/CMake-build-064F8C?logo=cmake&logoColor=white" height="20">
+</p>
+
+</div>
 ---
 
 ## О проекте
