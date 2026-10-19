@@ -18,6 +18,22 @@
 #include <utility>
 #include <vector>
 
+/**
+ * @brief Промежуточное представление Material при чтении сцены.
+ *
+ * Структура содержит сериализуемые свойства материала,
+ * которые могут быть восстановлены после загрузки файла:
+ *
+ * - основной цвет;
+ * - ambient strength;
+ * - diffuse strength;
+ * - specular strength;
+ * - shininess;
+ * - путь к diffuse texture.
+ *
+ * OpenGL-ресурсы и Texture2D непосредственно
+ * в файл сцены не сохраняются.
+ */
 struct SerializedMaterialData {
     Vec3 color{0.67f, 0.76f, 0.91f};
     float ambient = 0.2f;
@@ -27,6 +43,15 @@ struct SerializedMaterialData {
     std::filesystem::path texture_path;
 };
 
+/**
+ * @brief Промежуточное представление SceneRenderPart.
+ *
+ * При сериализации отдельной части multipart-модели
+ * сохраняются её имя и Material.
+ *
+ * Сама геометрия повторно в файл сцены не записывается,
+ * поскольку она восстанавливается из исходной модели.
+ */
 struct SerializedPartData {
     std::string name;
     SerializedMaterialData material;
@@ -35,8 +60,21 @@ struct SerializedPartData {
 /**
  * @brief Временное представление SceneObject при чтении файла сцены.
  *
- * Данные PointLight хранятся отдельно от Material, потому что
- * источник света является компонентом SceneObject, а не геометрией.
+ * Структура используется как промежуточный CPU-side объект
+ * между разбором текстового файла и созданием runtime SceneObject.
+ *
+ * Содержит:
+ *
+ * - имя и тип объекта;
+ * - путь к исходной модели;
+ * - Transform;
+ * - основной Material;
+ * - материалы отдельных RenderPart;
+ * - данные PointLight.
+ *
+ * Данные PointLight хранятся отдельно от Material,
+ * поскольку источник света является компонентом SceneObject,
+ * а не частью геометрии.
  */
 struct SerializedObjectData {
     std::string name;
@@ -52,6 +90,14 @@ struct SerializedObjectData {
     bool light_enabled = true;
 };
 
+/**
+ * @brief Преобразует SceneObject::Type
+ * в строковое представление формата сцены.
+ *
+ * @param type Тип SceneObject.
+ *
+ * @return Строковый идентификатор типа объекта.
+ */
 static const char* SceneObjectTypeToString(SceneObject::Type type) {
     switch (type) {
         case SceneObject::Type::Cube:
@@ -75,6 +121,16 @@ static const char* SceneObjectTypeToString(SceneObject::Type type) {
     }
 }
 
+/**
+ * @brief Преобразует строковый идентификатор
+ * из файла сцены в SceneObject::Type.
+ *
+ * @param value Строковый идентификатор типа.
+ * @param type Переменная, в которую записывается результат.
+ *
+ * @return true, если value содержит известный тип.
+ * @return false, если строка не распознана.
+ */
 static bool SceneObjectTypeFromString(const std::string& value, SceneObject::Type& type) {
     if (value == "CUBE") {
         type = SceneObject::Type::Cube;
@@ -109,6 +165,21 @@ static bool SceneObjectTypeFromString(const std::string& value, SceneObject::Typ
     return false;
 }
 
+/**
+ * @brief Читает следующий token и проверяет его значение.
+ *
+ * Функция используется для последовательной проверки
+ * структуры текстового формата сцены.
+ *
+ * Если чтение невозможно или token отличается
+ * от ожидаемого значения, возвращается false.
+ *
+ * @param file Открытый поток файла сцены.
+ * @param expected Ожидаемый token.
+ *
+ * @return true, если следующий token совпал с expected,
+ * иначе false.
+ */
 static bool ReadExpectedToken(std::ifstream& file, const std::string& expected) {
     std::string token;
 
@@ -120,10 +191,17 @@ static bool ReadExpectedToken(std::ifstream& file, const std::string& expected) 
 }
 
 /**
- * @brief Записывает компонент PointLight выбранного SceneObject.
+ * @brief Записывает компонент PointLight в файл сцены.
  *
- * Position не сохраняется внутри PointLight, потому что положение
- * источника является частью Transform самого SceneObject.
+ * Сохраняются:
+ *
+ * - цвет;
+ * - интенсивность;
+ * - состояние enabled.
+ *
+ * Позиция не сохраняется внутри PointLight,
+ * поскольку пространственное положение источника
+ * уже является частью Transform соответствующего SceneObject.
  *
  * @param file Открытый файл сцены.
  * @param light Компонент источника света.
@@ -141,9 +219,22 @@ static void WritePointLight(std::ofstream& file, const PointLight& light) {
 /**
  * @brief Читает блок PointLight из файла сцены.
  *
+ * Ожидается последовательность:
+ *
+ * LIGHT
+ * COLOR
+ * INTENSITY
+ * ENABLED
+ * END_LIGHT
+ *
+ * После успешного чтения устанавливается
+ * SerializedObjectData::has_point_light.
+ *
  * @param file Открытый файл сцены.
  * @param data Данные SceneObject, в которые записывается свет.
- * @return true при корректном формате блока.
+ *
+ * @return true при корректном формате блока,
+ * иначе false.
  */
 static bool ReadPointLight(std::ifstream& file, SerializedObjectData& data) {
     if (!ReadExpectedToken(file, "LIGHT")) {
@@ -186,6 +277,24 @@ static bool ReadPointLight(std::ifstream& file, SerializedObjectData& data) {
     return true;
 }
 
+/**
+ * @brief Записывает параметры Material в файл сцены.
+ *
+ * Сериализуются:
+ *
+ * - Color;
+ * - Ambient Strength;
+ * - Diffuse Strength;
+ * - Specular Strength;
+ * - Shininess;
+ * - путь к Diffuse Texture.
+ *
+ * Путь к texture записывается через std::quoted(),
+ * поэтому строка может содержать пробелы.
+ *
+ * @param file Открытый файл сцены.
+ * @param material Материал, который необходимо сохранить.
+ */
 static void WriteMaterial(std::ofstream& file, const Material& material) {
     const Vec3& color = material.GetColor();
 
@@ -215,6 +324,24 @@ static void WriteMaterial(std::ofstream& file, const Material& material) {
          << '\n';
 }
 
+/**
+ * @brief Читает параметры Material из файла сцены.
+ *
+ * Поля должны располагаться в фиксированной последовательности:
+ *
+ * COLOR
+ * AMBIENT
+ * DIFFUSE
+ * SPECULAR
+ * SHININESS
+ * DIFFUSE_TEXTURE
+ *
+ * @param file Открытый файл сцены.
+ * @param material Структура для сохранения прочитанных данных.
+ *
+ * @return true при успешном чтении всех параметров,
+ * иначе false.
+ */
 static bool ReadMaterial(std::ifstream& file, SerializedMaterialData& material) {
     if (!ReadExpectedToken(file, "COLOR")) {
         return false;
@@ -271,6 +398,19 @@ static bool ReadMaterial(std::ifstream& file, SerializedMaterialData& material) 
     return true;
 }
 
+/**
+ * @brief Применяет сериализованные параметры к runtime Material.
+ *
+ * Сначала восстанавливаются числовые параметры материала,
+ * после чего сбрасывается текущая diffuse texture.
+ *
+ * Если в сцене сохранён путь к texture,
+ * TextureManager пытается загрузить соответствующий Texture2D.
+ *
+ * @param material Runtime Material, который необходимо настроить.
+ * @param data Сериализованные параметры материала.
+ * @param texture_manager Менеджер загрузки и кеширования texture.
+ */
 static void ApplyMaterial(Material& material, const SerializedMaterialData& data, TextureManager& texture_manager) {
     material.SetColor(data.color);
     material.SetAmbientStrength(data.ambient);
@@ -295,6 +435,20 @@ static void ApplyMaterial(Material& material, const SerializedMaterialData& data
     }
 }
 
+/**
+ * @brief Вычисляет локальный BoundingBox
+ * для восстановленного primitive SceneObject.
+ *
+ * В первую очередь используются позиции
+ * из render_vertices.
+ *
+ * Если render_vertices отсутствуют,
+ * используются позиции из ImportedMeshData::positions.
+ *
+ * @param object SceneObject,
+ * которому необходимо назначить BoundingBox.
+ * @param mesh_data Геометрические данные primitive.
+ */
 static void SetPrimitiveBoundingBox(SceneObject& object, const ImportedMeshData& mesh_data) {
     std::vector<Vec3> points;
     points.reserve(mesh_data.render_vertices.size());
@@ -314,6 +468,27 @@ static void SetPrimitiveBoundingBox(SceneObject& object, const ImportedMeshData&
     }
 }
 
+/**
+ * @brief Создаёт primitive SceneObject
+ * из сериализованных данных.
+ *
+ * Поддерживаются:
+ *
+ * - Cube;
+ * - Plane;
+ * - Sphere.
+ *
+ * Геометрия заново генерируется через PrimitiveGenerator,
+ * после чего создаются Mesh и SceneObject.
+ *
+ * Для созданного primitive также восстанавливается
+ * локальный BoundingBox.
+ *
+ * @param data Сериализованные данные объекта.
+ *
+ * @return Созданный SceneObject
+ * или nullptr для неподдерживаемого типа.
+ */
 static std::shared_ptr<SceneObject> CreatePrimitiveObject(const SerializedObjectData& data) {
     ImportedMeshData mesh_data;
 
@@ -342,6 +517,19 @@ static std::shared_ptr<SceneObject> CreatePrimitiveObject(const SerializedObject
     return object;
 }
 
+/**
+ * @brief Восстанавливает материалы отдельных RenderPart.
+ *
+ * Материал из файла сопоставляется с существующим
+ * SceneRenderPart по имени части.
+ *
+ * Если соответствующая часть модели не найдена,
+ * сериализованный Material пропускается.
+ *
+ * @param object Runtime SceneObject.
+ * @param serialized_parts Сериализованные части модели.
+ * @param texture_manager Менеджер загрузки texture.
+ */
 static void ApplyRenderPartMaterials(SceneObject& object, const std::vector<SerializedPartData>& serialized_parts, TextureManager& texture_manager) {
     std::vector<SceneObject::SceneRenderPart>& render_parts = object.GetRenderParts();
 
@@ -366,6 +554,32 @@ static void ApplyRenderPartMaterials(SceneObject& object, const std::vector<Seri
     }
 }
 
+/**
+ * @brief Создаёт runtime SceneObject
+ * из промежуточных сериализованных данных.
+ *
+ * Способ восстановления зависит от SceneObject::Type:
+ *
+ * - Cube, Plane, Sphere заново создаются через PrimitiveGenerator;
+ * - ImportedModel повторно импортируется из source_path;
+ * - PointLight создаётся как SceneObject с компонентом PointLight;
+ * - Empty создаётся без геометрии.
+ *
+ * После создания для объекта восстанавливаются:
+ *
+ * - имя;
+ * - тип;
+ * - source path;
+ * - Transform;
+ * - основной Material;
+ * - материалы RenderPart.
+ *
+ * @param data Сериализованные данные SceneObject.
+ * @param texture_manager Менеджер texture.
+ *
+ * @return Восстановленный SceneObject
+ * или nullptr при невозможности восстановления.
+ */
 static std::shared_ptr<SceneObject> CreateObject(const SerializedObjectData& data, TextureManager& texture_manager) {
     std::shared_ptr<SceneObject> object;
 
@@ -377,6 +591,10 @@ static std::shared_ptr<SceneObject> CreateObject(const SerializedObjectData& dat
             break;
 
         case SceneObject::Type::ImportedModel: {
+            /**
+             * ImportedModel невозможно восстановить
+             * без пути к исходному OBJ-файлу.
+             */
             if (data.source_path.empty()) {
                 return nullptr;
             }
@@ -391,6 +609,10 @@ static std::shared_ptr<SceneObject> CreateObject(const SerializedObjectData& dat
                 return nullptr;
             }
 
+            /**
+             * Текущая модель импорта использует
+             * первый SceneObject из результата ModelImporter.
+             */
             object = imported_objects.front();
             break;
         }
@@ -416,6 +638,10 @@ static std::shared_ptr<SceneObject> CreateObject(const SerializedObjectData& dat
         return nullptr;
     }
 
+    /**
+     * Восстанавливаем общие свойства SceneObject,
+     * независимо от его конкретного типа.
+     */
     object->SetName(data.name);
     object->SetType(data.type);
     object->SetSourcePath(data.source_path);
@@ -440,6 +666,37 @@ static std::shared_ptr<SceneObject> CreateObject(const SerializedObjectData& dat
     return object;
 }
 
+/**
+ * @brief Сохраняет текущую Scene в текстовый файл.
+ *
+ * Текущий формат записи:
+ *
+ * MINI_ENGINE_SCENE 4
+ *
+ * Для каждого SceneObject сохраняются:
+ *
+ * - имя;
+ * - Type;
+ * - source path;
+ * - Transform;
+ * - PointLight для объектов соответствующего типа;
+ * - основной Material;
+ * - материалы SceneRenderPart.
+ *
+ * nullptr-элементы внутри Scene
+ * не включаются в OBJECT_COUNT и не записываются.
+ *
+ * Для Type::PointLight наличие компонента PointLight обязательно.
+ * Если тип объекта равен PointLight,
+ * но компонент отсутствует, сохранение завершается с false.
+ *
+ * @param scene Сцена, которую необходимо сохранить.
+ * @param path Путь к файлу сцены.
+ *
+ * @return true при успешной записи.
+ * @return false, если файл не удалось открыть
+ * или структура объекта не может быть сериализована.
+ */
 bool SceneSerializer::Save(const Scene& scene, const std::filesystem::path& path) {
     std::ofstream file(path);
 
@@ -449,9 +706,11 @@ bool SceneSerializer::Save(const Scene& scene, const std::filesystem::path& path
 
     file << "MINI_ENGINE_SCENE 4\n";
 
-    /*
+    /**
      * В OBJECT_COUNT записываем только реальные SceneObject.
-     * nullptr внутри Scene не должен повреждать структуру файла.
+     *
+     * nullptr внутри Scene не должен нарушать
+     * структуру сериализованного файла.
      */
     std::size_t object_count = 0;
 
@@ -497,12 +756,14 @@ bool SceneSerializer::Save(const Scene& scene, const std::filesystem::path& path
              << transform.scale.y << ' '
              << transform.scale.z << '\n';
 
-        /*
+        /**
          * PointLight является компонентом SceneObject.
-         * Его положение уже сохранено в Transform выше.
          *
-         * Для Type::PointLight компонент обязателен:
-         * иначе файл версии 4 оказался бы структурно неполным.
+         * Его положение уже сохранено выше
+         * как часть Transform.
+         *
+         * Для Type::PointLight компонент обязателен,
+         * иначе файл версии 4 был бы структурно неполным.
          */
         if (object->GetType() == SceneObject::Type::PointLight) {
             const PointLight* light = object->GetPointLight();
@@ -546,6 +807,43 @@ bool SceneSerializer::Save(const Scene& scene, const std::filesystem::path& path
     return true;
 }
 
+/**
+ * @brief Загружает Scene из текстового файла.
+ *
+ * Метод поддерживает форматы сцены:
+ *
+ * - version 3;
+ * - version 4.
+ *
+ * Version 4 содержит отдельный блок PointLight.
+ *
+ * Version 3 не сохраняла параметры PointLight.
+ * Для совместимости объект Type::Empty,
+ * имя которого начинается с "Point Light",
+ * восстанавливается как PointLight
+ * с параметрами света по умолчанию.
+ *
+ * Загрузка выполняется в несколько этапов:
+ *
+ * 1. Проверяется заголовок и версия файла.
+ * 2. Все объекты разбираются в SerializedObjectData.
+ * 3. Из промежуточных данных создаются runtime SceneObject.
+ * 4. Только после успешного создания всех объектов
+ *    текущая Scene очищается.
+ * 5. В Scene добавляются восстановленные объекты.
+ *
+ * Благодаря такому порядку scene.Clear()
+ * не вызывается при ранней ошибке парсинга
+ * или создания одного из объектов.
+ *
+ * @param scene Scene, в которую необходимо загрузить объекты.
+ * @param path Путь к файлу сцены.
+ * @param texture_manager Менеджер texture,
+ * используемый при восстановлении материалов и моделей.
+ *
+ * @return true при успешной загрузке всей сцены,
+ * иначе false.
+ */
 bool SceneSerializer::Load(Scene& scene, const std::filesystem::path& path, TextureManager& texture_manager) {
     std::ifstream file(path);
 
@@ -563,9 +861,11 @@ bool SceneSerializer::Load(Scene& scene, const std::filesystem::path& path, Text
         return false;
     }
 
-    /*
+    /**
      * Version 4 добавляет сериализацию PointLight.
-     * Version 3 продолжаем читать для старых сцен без света.
+     *
+     * Version 3 продолжаем поддерживать
+     * для загрузки ранее сохранённых сцен.
      */
     if (version != 3 && version != 4) {
         return false;
@@ -581,6 +881,12 @@ bool SceneSerializer::Load(Scene& scene, const std::filesystem::path& path, Text
         return false;
     }
 
+    /**
+     * На первом этапе читаем файл
+     * только в промежуточные структуры.
+     *
+     * Runtime Scene пока не изменяется.
+     */
     std::vector<SerializedObjectData> serialized_objects;
     serialized_objects.reserve(object_count);
 
@@ -609,14 +915,18 @@ bool SceneSerializer::Load(Scene& scene, const std::filesystem::path& path, Text
             return false;
         }
 
-        /*
-         * Scene format v3 не умел сохранять PointLight:
-         * старый serializer записывал его как EMPTY.
+        /**
+         * Scene format v3 не умел сохранять PointLight.
          *
-         * Если старый объект имеет стандартное имя Point Light,
-         * восстанавливаем компонент с параметрами по умолчанию.
-         * Color / Intensity / Enabled старого файла восстановить
-         * невозможно, потому что версия 3 их физически не сохраняла.
+         * Старый serializer записывал такой объект как EMPTY.
+         *
+         * Если объект старой сцены имеет имя,
+         * начинающееся с "Point Light",
+         * восстанавливаем его тип и наличие компонента.
+         *
+         * Color, Intensity и Enabled старого источника
+         * восстановить невозможно,
+         * поскольку version 3 их не сохраняла.
          */
         if (version == 3 &&
             object_data.type == SceneObject::Type::Empty &&
@@ -670,9 +980,12 @@ bool SceneSerializer::Load(Scene& scene, const std::filesystem::path& path, Text
             return false;
         }
 
-        /*
-         * В версии 4 PointLight хранится отдельным блоком.
-         * Для остальных типов сразу следует MATERIAL.
+        /**
+         * В version 4 PointLight
+         * хранится отдельным блоком.
+         *
+         * Для остальных типов
+         * следующим блоком сразу является MATERIAL.
          */
         if (version >= 4 && object_data.type == SceneObject::Type::PointLight) {
             if (!ReadPointLight(file, object_data)) {
@@ -737,6 +1050,13 @@ bool SceneSerializer::Load(Scene& scene, const std::filesystem::path& path, Text
         );
     }
 
+    /**
+     * На втором этапе создаём runtime SceneObject.
+     *
+     * loaded_objects пока существует отдельно от Scene,
+     * поэтому при ошибке существующая сцена
+     * ещё не очищается.
+     */
     std::vector<std::shared_ptr<SceneObject>> loaded_objects;
     loaded_objects.reserve(serialized_objects.size());
 
@@ -755,6 +1075,11 @@ bool SceneSerializer::Load(Scene& scene, const std::filesystem::path& path, Text
         );
     }
 
+    /**
+     * Заменяем содержимое Scene
+     * только после успешного восстановления
+     * всех SceneObject.
+     */
     scene.Clear();
 
     for (std::shared_ptr<SceneObject>& object : loaded_objects) {
