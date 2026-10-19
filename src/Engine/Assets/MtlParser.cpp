@@ -8,11 +8,21 @@
 #include <vector>
 
 /**
- * @brief Удаляет пробельные символы в начале и конце строки.
+ * @brief Удаляет пробельные символы
+ * в начале и конце строки.
+ *
+ * Обрабатываются обычные пробелы, табуляция,
+ * символы возврата каретки и перевода строки.
+ *
+ * Функция используется при разборе строк MTL,
+ * чтобы команды и их значения не зависели
+ * от форматирования исходного файла.
  *
  * @param value Исходная строка.
  *
- * @return Строка без внешних пробелов.
+ * @return Строка без внешних пробельных символов.
+ * Если строка содержит только пробелы,
+ * возвращается пустая строка.
  */
 static std::string TrimMtlText(const std::string& value) {
     const std::size_t first = value.find_first_not_of(" \t\r\n");
@@ -27,14 +37,24 @@ static std::string TrimMtlText(const std::string& value) {
 }
 
 /**
- * @brief Разбирает три float-значения MTL.
+ * @brief Разбирает три вещественных значения MTL.
  *
- * Используется для Ka, Kd, Ks и Tf.
+ * Функция используется для параметров,
+ * представленных тремя компонентами:
  *
- * @param value Текст после команды MTL.
- * @param result Результирующий Vec3.
+ * - Ka;
+ * - Kd;
+ * - Ks;
+ * - Tf.
  *
- * @return true при успешном чтении трёх чисел.
+ * Значения последовательно записываются
+ * в компоненты x, y и z результирующего Vec3.
+ *
+ * @param value Текстовая часть строки после команды MTL.
+ * @param result Vec3, в который записываются прочитанные значения.
+ *
+ * @return true, если удалось прочитать все три компонента;
+ * иначе false.
  */
 static bool ParseMtlVec3(const std::string& value, Vec3& result) {
     std::istringstream stream(value);
@@ -45,12 +65,16 @@ static bool ParseMtlVec3(const std::string& value, Vec3& result) {
 }
 
 /**
- * @brief Разбирает одно float-значение.
+ * @brief Разбирает одно вещественное значение MTL.
  *
- * @param value Строковое значение.
- * @param result Результат.
+ * Используется для скалярных параметров,
+ * таких как Ns и Ni.
  *
- * @return true при успешном преобразовании.
+ * @param value Текстовое представление значения.
+ * @param result Переменная, в которую записывается результат.
+ *
+ * @return true при успешном чтении значения;
+ * иначе false.
  */
 static bool ParseMtlFloat(const std::string& value, float& result) {
     std::istringstream stream(value);
@@ -61,14 +85,16 @@ static bool ParseMtlFloat(const std::string& value, float& result) {
 }
 
 /**
- * @brief Разбирает одно целочисленное значение.
+ * @brief Разбирает одно целочисленное значение MTL.
  *
- * Используется для параметра illum.
+ * Используется для параметра illum,
+ * определяющего номер модели освещения MTL.
  *
- * @param value Строковое значение.
- * @param result Результат.
+ * @param value Текстовое представление значения.
+ * @param result Переменная, в которую записывается результат.
  *
- * @return true при успешном преобразовании.
+ * @return true при успешном чтении значения;
+ * иначе false.
  */
 static bool ParseMtlInt(const std::string& value, int& result) {
     std::istringstream stream(value);
@@ -79,16 +105,25 @@ static bool ParseMtlInt(const std::string& value, int& result) {
 }
 
 /**
- * @brief Проверяет, является ли токен числом.
+ * @brief Проверяет, является ли строковый токен числом.
  *
- * Используется при пропуске параметров map_Kd,
- * например:
+ * Проверка используется при обработке дополнительных
+ * параметров директивы map_Kd.
+ *
+ * Например:
  *
  * map_Kd -o 0 0 0 texture.jpg
  *
- * @param value Проверяемая строка.
+ * Значения после параметра -o являются числами
+ * и должны быть пропущены перед извлечением
+ * фактического пути к изображению.
  *
- * @return true, если вся строка является числом.
+ * Для проверки используется std::strtof().
+ *
+ * @param value Проверяемый токен.
+ *
+ * @return true, если вся строка представляет число;
+ * иначе false.
  */
 static bool IsMtlNumber(const std::string& value) {
     if (value.empty()) {
@@ -106,19 +141,26 @@ static bool IsMtlNumber(const std::string& value) {
 }
 
 /**
- * @brief Удаляет окружающие кавычки из пути.
+ * @brief Удаляет парные внешние кавычки из строки.
  *
- * Поддерживаются:
+ * Функция поддерживает как двойные,
+ * так и одинарные кавычки.
+ *
+ * Например:
  *
  * "texture name.jpg"
  *
- * и
+ * преобразуется в:
+ *
+ * texture name.jpg
+ *
+ * Аналогично обрабатывается:
  *
  * 'texture name.jpg'
  *
  * @param value Исходная строка.
  *
- * @return Путь без внешних кавычек.
+ * @return Строка без окружающих кавычек.
  */
 static std::string RemoveMtlQuotes(std::string value) {
     value = TrimMtlText(value);
@@ -146,20 +188,49 @@ static std::string RemoveMtlQuotes(std::string value) {
 }
 
 /**
- * @brief Извлекает имя файла текстуры из map_Kd.
+ * @brief Извлекает путь к diffuse texture
+ * из содержимого директивы map_Kd.
  *
- * Wavefront допускает дополнительные параметры:
+ * Wavefront MTL позволяет указывать перед путём
+ * дополнительные параметры текстуры.
+ *
+ * Например:
  *
  * map_Kd -s 1 1 1 texture.jpg
+ *
  * map_Kd -o 0 0 0 texture.jpg
+ *
  * map_Kd -clamp on texture.jpg
  *
- * Функция пропускает известные параметры
+ * Функция пропускает поддерживаемые дополнительные параметры
  * и возвращает непосредственно путь к изображению.
  *
- * @param value Всё содержимое строки после map_Kd.
+ * Обрабатываются параметры:
  *
- * @return Путь, записанный в MTL.
+ * - -mm;
+ * - -o;
+ * - -s;
+ * - -t;
+ * - -blendu;
+ * - -blendv;
+ * - -boost;
+ * - -texres;
+ * - -clamp;
+ * - -bm;
+ * - -imfchan;
+ * - -type.
+ *
+ * Если путь содержит пробелы,
+ * оставшиеся токены объединяются обратно
+ * в одну строку.
+ *
+ * Окружающие одинарные или двойные кавычки
+ * удаляются перед возвратом результата.
+ *
+ * @param value Содержимое строки после команды map_Kd.
+ *
+ * @return Путь к изображению в форме,
+ * в которой он был указан в MTL.
  */
 static std::string ExtractDiffuseTexturePath(const std::string& value) {
     std::istringstream stream(value);
@@ -238,11 +309,13 @@ static std::string ExtractDiffuseTexturePath(const std::string& value) {
 
     std::string texture_path = tokens[index];
 
-    /*
-     * Путь может содержать пробелы.
+    /**
+     * Путь к Texture может содержать пробелы.
      *
-     * Поэтому все оставшиеся токены снова
-     * объединяются в одну строку.
+     * После обработки параметров map_Kd
+     * все оставшиеся токены относятся к пути,
+     * поэтому они объединяются обратно
+     * в единую строку.
      */
     for (++index; index < tokens.size(); ++index) {
         texture_path += " ";
@@ -253,37 +326,50 @@ static std::string ExtractDiffuseTexturePath(const std::string& value) {
 }
 
 /**
- * @brief Преобразует путь map_Kd в путь файловой системы.
+ * @brief Преобразует путь из map_Kd
+ * в нормализованный путь файловой системы.
  *
- * Если путь абсолютный, он используется напрямую.
+ * Если texture_path является абсолютным,
+ * он используется непосредственно.
  *
- * Если путь относительный, он разрешается относительно
- * директории MTL-файла.
+ * Если путь относительный, он разрешается
+ * относительно директории текущего MTL-файла.
  *
  * Например:
  *
  * /models/vase/vase.mtl
+ *
+ * и:
+ *
  * map_Kd Chrysanthemum.jpg
  *
- * даст:
+ * дают:
  *
  * /models/vase/Chrysanthemum.jpg
  *
- * @param mtl_path Путь к текущему MTL.
- * @param texture_path Путь из map_Kd.
+ * Дополнительно обратные слеши,
+ * встречающиеся в MTL-файлах, созданных на Windows,
+ * преобразуются в прямые слеши.
  *
- * @return Нормализованный путь к текстуре.
+ * После формирования выполняется
+ * лексическая нормализация пути.
+ *
+ * @param mtl_path Путь к текущему MTL-файлу.
+ * @param texture_path Путь к изображению из map_Kd.
+ *
+ * @return Нормализованный путь к diffuse texture.
  */
 static std::filesystem::path ResolveDiffuseTexturePath(const std::filesystem::path& mtl_path, std::string texture_path) {
     if (texture_path.empty()) {
         return {};
     }
 
-    /*
-     * Некоторые MTL были созданы на Windows
-     * и содержат обратные слеши.
+    /**
+     * MTL-файл может содержать Windows-разделители пути.
      *
-     * Приводим их к переносимому виду.
+     * Преобразование делает путь пригодным
+     * для дальнейшей обработки std::filesystem
+     * на текущей платформе.
      */
     std::replace(
         texture_path.begin(),
@@ -304,12 +390,18 @@ static std::filesystem::path ResolveDiffuseTexturePath(const std::filesystem::pa
 }
 
 /**
- * @brief Загружает материалы по пути, заданному строкой.
+ * @brief Загружает MTL-файл по пути,
+ * заданному строкой std::string.
  *
- * @param path Путь к MTL.
- * @param materials Результирующий список материалов.
+ * Перегрузка преобразует строку
+ * в std::filesystem::path и передаёт работу
+ * основной реализации Parse().
  *
- * @return true при успешной загрузке хотя бы одного материала.
+ * @param path Путь к MTL-файлу.
+ * @param materials Контейнер для разобранных материалов.
+ *
+ * @return true, если был успешно прочитан
+ * хотя бы один материал; иначе false.
  */
 bool MtlParser::Parse(const std::string& path, std::vector<ImportedMaterialData>& materials) {
     return Parse(
@@ -319,25 +411,43 @@ bool MtlParser::Parse(const std::string& path, std::vector<ImportedMaterialData>
 }
 
 /**
- * @brief Загружает библиотеку материалов Wavefront MTL.
+ * @brief Загружает и разбирает библиотеку материалов Wavefront MTL.
  *
- * Каждый newmtl создаёт отдельный ImportedMaterialData.
+ * Метод читает файл построчно.
  *
- * Поддерживаемые параметры:
+ * Для каждой строки:
  *
- * Ka     -> ambient_color;
- * Kd     -> diffuse_color;
- * Ks     -> specular_color;
- * Tf     -> transmission_filter;
- * Ns     -> shininess;
- * Ni     -> optical_density;
- * illum  -> illumination_model;
- * map_Kd -> diffuse_texture_path.
+ * 1. удаляется комментарий после символа #;
+ * 2. удаляются внешние пробелы;
+ * 3. выделяются команда и значение;
+ * 4. поддерживаемая команда записывается
+ *    в текущий ImportedMaterialData.
+ *
+ * Каждая директива newmtl начинает описание
+ * нового материала.
+ *
+ * Перед переходом к следующему newmtl
+ * предыдущий материал сохраняется
+ * в результирующий контейнер.
+ *
+ * Поддерживается следующее соответствие:
+ *
+ * - Ka -> ambient_color;
+ * - Kd -> diffuse_color;
+ * - Ks -> specular_color;
+ * - Tf -> transmission_filter;
+ * - Ns -> shininess;
+ * - Ni -> optical_density;
+ * - illum -> illumination_model;
+ * - map_Kd -> diffuse_texture_path.
+ *
+ * Строки до первого newmtl игнорируются.
  *
  * @param path Путь к MTL-файлу.
- * @param materials Результирующий список материалов.
+ * @param materials Контейнер для разобранных материалов.
  *
- * @return true, если был найден хотя бы один newmtl.
+ * @return true, если после разбора получен
+ * хотя бы один материал; иначе false.
  */
 bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMaterialData>& materials) {
     std::ifstream file(path);
@@ -352,8 +462,15 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
     bool has_material = false;
 
     /**
-     * Сохраняет законченный материал перед
-     * началом следующего newmtl или концом файла.
+     * Сохраняет текущий полностью сформированный материал.
+     *
+     * Лямбда вызывается:
+     *
+     * - перед началом следующего newmtl;
+     * - после завершения чтения файла.
+     *
+     * Материал без имени не добавляется
+     * в результирующий список.
      */
     const auto store_material = [&]() {
         if (
@@ -371,8 +488,11 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
     std::string line;
 
     while (std::getline(file, line)) {
-        /*
-         * Удаляем комментарий.
+        /**
+         * Комментарии MTL начинаются с символа #.
+         *
+         * Всё содержимое после него
+         * не участвует в разборе строки.
          */
         const std::size_t comment_position =
             line.find('#');
@@ -389,14 +509,18 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
             continue;
         }
 
-        /*
-         * Разделяем строку на:
-         *
-         * command value
+        /**
+         * Строка разделяется на команду
+         * и оставшуюся часть значения.
          *
          * Например:
          *
          * Kd 1.0 0.0 0.0
+         *
+         * превращается в:
+         *
+         * command = "Kd"
+         * value   = "1.0 0.0 0.0"
          */
         const std::size_t separator =
             line.find_first_of(" \t");
@@ -413,8 +537,12 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
                     line.substr(separator + 1)
                 );
 
-        /*
-         * Начало нового материала.
+        /**
+         * newmtl начинает описание нового материала.
+         *
+         * Сначала сохраняется предыдущий материал,
+         * после чего структура сбрасывается
+         * к значениям по умолчанию.
          */
         if (command == "newmtl") {
             store_material();
@@ -430,15 +558,16 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
             continue;
         }
 
-        /*
-         * Параметры до первого newmtl
-         * игнорируются.
+        /**
+         * Параметры, расположенные до первого newmtl,
+         * не относятся ни к одному материалу
+         * и поэтому игнорируются.
          */
         if (!has_material) {
             continue;
         }
 
-        /*
+        /**
          * Ambient color.
          */
         if (command == "Ka") {
@@ -450,7 +579,7 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
             continue;
         }
 
-        /*
+        /**
          * Diffuse color.
          */
         if (command == "Kd") {
@@ -462,7 +591,7 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
             continue;
         }
 
-        /*
+        /**
          * Specular color.
          */
         if (command == "Ks") {
@@ -474,7 +603,7 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
             continue;
         }
 
-        /*
+        /**
          * Transmission filter.
          */
         if (command == "Tf") {
@@ -486,7 +615,7 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
             continue;
         }
 
-        /*
+        /**
          * Shininess.
          */
         if (command == "Ns") {
@@ -498,7 +627,7 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
             continue;
         }
 
-        /*
+        /**
          * Optical density.
          */
         if (command == "Ni") {
@@ -510,7 +639,7 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
             continue;
         }
 
-        /*
+        /**
          * Illumination model.
          */
         if (command == "illum") {
@@ -522,8 +651,13 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
             continue;
         }
 
-        /*
+        /**
          * Diffuse texture.
+         *
+         * Сначала из map_Kd извлекается путь
+         * без дополнительных параметров,
+         * после чего он разрешается относительно
+         * директории текущего MTL-файла.
          */
         if (command == "map_Kd") {
             const std::string texture_path =
@@ -539,8 +673,10 @@ bool MtlParser::Parse(const std::filesystem::path& path, std::vector<ImportedMat
         }
     }
 
-    /*
-     * Сохраняем последний материал.
+    /**
+     * После достижения конца файла последний материал
+     * ещё не был сохранён вызовом следующего newmtl,
+     * поэтому сохраняем его отдельно.
      */
     store_material();
 
