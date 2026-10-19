@@ -16,6 +16,14 @@
 #include <thread>
 #include <utility>
 
+/**
+ * @brief Создаёт окно управления нагрузочными тестами Mini Engine.
+ *
+ * Диалог позволяет выбрать размер тестовой сцены, режим обновления,
+ * число рабочих потоков и запускать как отдельный тест, так и полный benchmark.
+ *
+ * @param parent Родительское окно Qt.
+ */
 TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
     setAttribute(Qt::WA_StyledBackground, true);
@@ -326,8 +334,7 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     button_layout->addWidget(stop_button_);
     button_layout->addStretch();
 
-    benchmark_progress_value_ =
-    new QLabel("Full Benchmark: idle", this);
+    benchmark_progress_value_ = new QLabel("Full Benchmark: idle", this);
 
     benchmark_progress_value_->setAlignment(
         Qt::AlignLeft | Qt::AlignVCenter
@@ -497,10 +504,10 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
      * владельцу TestsDialog.
      */
     connect(
-    run_button_,
-    &QPushButton::clicked,
-    this,
-    [this]() {
+        run_button_,
+        &QPushButton::clicked,
+        this,
+        [this]() {
             if (!run_test_callback_) {
                 return;
             }
@@ -513,7 +520,7 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
         }
     );
 
-        connect(
+    connect(
         full_benchmark_button_,
         &QPushButton::clicked,
         this,
@@ -546,14 +553,30 @@ TestsDialog::TestsDialog(QWidget* parent) : QDialog(parent) {
     UpdateWorkerCountState();
 }
 
+/**
+ * @brief Устанавливает callback запуска одного теста.
+ *
+ * @param callback Функция, получающая тестовую сцену, режим выполнения и число workers.
+ */
 void TestsDialog::SetRunTestCallback(std::function<void(TestScene, ExecutionMode, std::size_t)> callback) {
     run_test_callback_ = std::move(callback);
 }
 
+/**
+ * @brief Устанавливает callback остановки текущего теста.
+ *
+ * @param callback Функция остановки benchmark.
+ */
 void TestsDialog::SetStopTestCallback(std::function<void()> callback) {
     stop_test_callback_ = std::move(callback);
 }
 
+/**
+ * @brief Обновляет отображаемые показатели производительности.
+ *
+ * Все значения передаются уже рассчитанными системой benchmark. Диалог
+ * только форматирует их и отображает пользователю.
+ */
 void TestsDialog::SetPerformanceStats(std::size_t object_count, std::size_t worker_count, double update_ms, double render_ms, double frame_ms, double processing_fps, double shadow_ms, double main_ms, double editor_ms, std::size_t draw_calls, std::size_t shadow_draw_calls, std::size_t main_draw_calls, std::size_t editor_draw_calls) {
     objects_value_->setText(
         QString::number(
@@ -660,6 +683,9 @@ void TestsDialog::SetPerformanceStats(std::size_t object_count, std::size_t work
     );
 }
 
+/**
+ * @brief Сбрасывает визуальные значения статистики к начальному состоянию.
+ */
 void TestsDialog::ResetPerformanceStats() {
     objects_value_->setText("0");
     workers_value_->setText("1");
@@ -679,6 +705,11 @@ void TestsDialog::ResetPerformanceStats() {
     editor_draw_calls_value_->setText("0");
 }
 
+/**
+ * @brief Переключает элементы управления между состояниями idle и running.
+ *
+ * Во время теста изменение конфигурации блокируется, а кнопка Stop включается.
+ */
 void TestsDialog::SetRunning(bool running) {
     run_button_->setEnabled(!running);
     full_benchmark_button_->setEnabled(!running);
@@ -695,6 +726,11 @@ void TestsDialog::SetRunning(bool running) {
     }
 }
 
+/**
+ * @brief Обновляет доступность выбора количества workers.
+ *
+ * В SingleThreaded режиме ThreadPool не используется, поэтому выбор workers отключён.
+ */
 void TestsDialog::UpdateWorkerCountState() {
     if (!worker_count_combo_) {
         return;
@@ -708,6 +744,9 @@ void TestsDialog::UpdateWorkerCountState() {
     );
 }
 
+/**
+ * @brief Позволяет перемещать frameless-окно за верхнюю область заголовка.
+ */
 void TestsDialog::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton && event->position().y() <= 42.0) {
         if (windowHandle()) {
@@ -721,6 +760,9 @@ void TestsDialog::mousePressEvent(QMouseEvent* event) {
     QDialog::mousePressEvent(event);
 }
 
+/**
+ * @brief Возвращает тестовую сцену, выбранную пользователем.
+ */
 TestScene TestsDialog::GetSelectedTestScene() const {
     switch (test_scene_combo_->currentIndex()) {
         case 1:
@@ -738,6 +780,9 @@ TestScene TestsDialog::GetSelectedTestScene() const {
     }
 }
 
+/**
+ * @brief Возвращает выбранный режим обновления сцены.
+ */
 ExecutionMode TestsDialog::GetSelectedExecutionMode() const {
     switch (execution_mode_combo_->currentIndex()) {
         case 1:
@@ -749,6 +794,11 @@ ExecutionMode TestsDialog::GetSelectedExecutionMode() const {
     }
 }
 
+/**
+ * @brief Возвращает выбранное количество рабочих потоков.
+ *
+ * Для SingleThreaded режима всегда возвращается 1.
+ */
 std::size_t TestsDialog::GetSelectedWorkerCount() const {
     /*
      * SingleThreaded выполняет Scene Update
@@ -777,10 +827,19 @@ std::size_t TestsDialog::GetSelectedWorkerCount() const {
 }
 
 
+/**
+ * @brief Устанавливает callback запуска полного benchmark.
+ */
 void TestsDialog::SetRunFullBenchmarkCallback(std::function<void()> callback) {
     run_full_benchmark_callback_ = std::move(callback);
 }
 
+/**
+ * @brief Обновляет строку прогресса полного benchmark.
+ *
+ * @param current Номер текущей конфигурации.
+ * @param total Общее количество конфигураций.
+ */
 void TestsDialog::SetBenchmarkProgress(std::size_t current, std::size_t total) {
     benchmark_progress_value_->setText(
         "Full Benchmark: " +

@@ -13,46 +13,73 @@ class QLabel;
 class QPushButton;
 
 /**
- * @brief Панель запуска нагрузочных тестов Mini Engine.
+ * @brief Компактная встроенная панель запуска базового нагрузочного теста.
  *
- * TestsPanel отвечает только за интерфейс:
- * - выбор тестовой сцены;
- * - выбор режима выполнения;
- * - запуск и остановку теста;
- * - отображение статистики производительности.
+ * TestsPanel является отдельным UI-компонентом и не выполняет benchmark сам.
+ * Он предоставляет выбор тестовой сцены и режима обновления, кнопки Run/Stop
+ * и базовые показатели производительности.
  *
- * Сама панель не создаёт SceneObject и не выполняет benchmark.
+ * В предоставленной реализации TestsPanel поддерживает только Cube1k и не
+ * предоставляет отдельный выбор количества workers. Более полный интерфейс
+ * тестирования реализован в TestsDialog.
  */
 class TestsPanel final : public QWidget {
 public:
-	explicit TestsPanel(QWidget* parent = nullptr);
+    /**
+     * @brief Создаёт панель тестирования.
+     */
+    explicit TestsPanel(QWidget* parent = nullptr);
 
-	void SetRunTestCallback(std::function<void(TestScene, ExecutionMode)> callback);
-	void SetStopTestCallback(std::function<void()> callback);
+    /**
+     * @brief Устанавливает callback запуска теста.
+     */
+    void SetRunTestCallback(std::function<void(TestScene, ExecutionMode)> callback);
 
-	void SetPerformanceStats(std::size_t object_count, std::size_t worker_count, double update_ms, double render_ms, double frame_ms, double fps);
-	void ResetPerformanceStats();
+    /**
+     * @brief Устанавливает callback остановки теста.
+     */
+    void SetStopTestCallback(std::function<void()> callback);
 
-	void SetRunning(bool running);
+    /**
+     * @brief Обновляет базовые показатели производительности.
+     */
+    void SetPerformanceStats(std::size_t object_count, std::size_t worker_count, double update_ms, double render_ms, double frame_ms, double fps);
+
+    /**
+     * @brief Сбрасывает отображаемые показатели к начальному состоянию.
+     */
+    void ResetPerformanceStats();
+
+    /**
+     * @brief Меняет доступность элементов управления во время теста.
+     */
+    void SetRunning(bool running);
 
 private:
-	TestScene GetSelectedTestScene() const;
-	ExecutionMode GetSelectedExecutionMode() const;
+    /**
+     * @brief Возвращает выбранную тестовую сцену.
+     */
+    TestScene GetSelectedTestScene() const;
+
+    /**
+     * @brief Возвращает выбранный режим выполнения.
+     */
+    ExecutionMode GetSelectedExecutionMode() const;
 
 private:
-	QComboBox* test_scene_combo_ = nullptr;
-	QComboBox* execution_mode_combo_ = nullptr;
+    QComboBox* test_scene_combo_ = nullptr;
+    QComboBox* execution_mode_combo_ = nullptr;
 
-	QPushButton* run_button_ = nullptr;
-	QPushButton* stop_button_ = nullptr;
+    QPushButton* run_button_ = nullptr;
+    QPushButton* stop_button_ = nullptr;
 
-	QLabel* objects_value_ = nullptr;
-	QLabel* workers_value_ = nullptr;
-	QLabel* update_value_ = nullptr;
-	QLabel* render_value_ = nullptr;
-	QLabel* frame_value_ = nullptr;
-	QLabel* fps_value_ = nullptr;
+    QLabel* objects_value_ = nullptr;
+    QLabel* workers_value_ = nullptr;
+    QLabel* update_value_ = nullptr;
+    QLabel* render_value_ = nullptr;
+    QLabel* frame_value_ = nullptr;
+    QLabel* fps_value_ = nullptr;
 
-	std::function<void(TestScene, ExecutionMode)> run_test_callback_;
-	std::function<void()> stop_test_callback_;
+    std::function<void(TestScene, ExecutionMode)> run_test_callback_;
+    std::function<void()> stop_test_callback_;
 };

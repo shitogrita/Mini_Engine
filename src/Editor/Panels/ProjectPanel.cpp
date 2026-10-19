@@ -6,6 +6,9 @@
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
+/**
+ * @brief Создаёт ProjectPanel и связывает строку поиска с фильтрацией дерева.
+ */
 ProjectPanel::ProjectPanel(QWidget* parent) : QWidget(parent) {
     CreateLayout();
     CreateTree();
@@ -13,8 +16,11 @@ ProjectPanel::ProjectPanel(QWidget* parent) : QWidget(parent) {
     connect(search_line_, &QLineEdit::textChanged, this, &ProjectPanel::FilterTree);
 }
 
+/**
+ * @brief Создаёт основные UI-компоненты панели.
+ */
 void ProjectPanel::CreateLayout() {
-    auto* layout = new QVBoxLayout(this);
+    QVBoxLayout* layout = new QVBoxLayout(this);
 
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
@@ -31,6 +37,9 @@ void ProjectPanel::CreateLayout() {
     layout->addWidget(tree_);
 }
 
+/**
+ * @brief Создаёт корневой узел Assets и категории ресурсов.
+ */
 void ProjectPanel::CreateTree() {
     assets_item_ = new QTreeWidgetItem(tree_);
     assets_item_->setText(0, "Assets");
@@ -51,6 +60,9 @@ void ProjectPanel::CreateTree() {
     models_item_->setExpanded(true);
 }
 
+/**
+ * @brief Добавляет модель в дерево импортированных файлов.
+ */
 void ProjectPanel::AddImportedFile(const QString& file_path) {
     if (!models_item_) {
         return;
@@ -59,12 +71,13 @@ void ProjectPanel::AddImportedFile(const QString& file_path) {
     const QFileInfo file_info(file_path);
     const QString absolute_path = file_info.absoluteFilePath();
 
-    /*
-     * Не добавляем один и тот же файл несколько раз
-     * в Project Panel.
+    /**
+     * В Qt::UserRole хранится абсолютный путь к файлу.
+     * Это позволяет отличать модели с одинаковым именем,
+     * находящиеся в разных каталогах.
      */
-    for (int i = 0; i < models_item_->childCount(); ++i) {
-        QTreeWidgetItem* item = models_item_->child(i);
+    for (int index = 0; index < models_item_->childCount(); ++index) {
+        QTreeWidgetItem* item = models_item_->child(index);
 
         if (item && item->data(0, Qt::UserRole).toString() == absolute_path) {
             tree_->setCurrentItem(item);
@@ -72,7 +85,7 @@ void ProjectPanel::AddImportedFile(const QString& file_path) {
         }
     }
 
-    auto* item = new QTreeWidgetItem(models_item_);
+    QTreeWidgetItem* item = new QTreeWidgetItem(models_item_);
 
     item->setText(0, file_info.fileName());
     item->setData(0, Qt::UserRole, absolute_path);
@@ -82,15 +95,14 @@ void ProjectPanel::AddImportedFile(const QString& file_path) {
     tree_->setCurrentItem(item);
 }
 
+/**
+ * @brief Удаляет все динамически добавленные элементы из раздела Models.
+ */
 void ProjectPanel::ClearImportedFiles() {
     if (!models_item_) {
         return;
     }
 
-    /*
-     * takeChild() отсоединяет item от дерева,
-     * delete уничтожает его.
-     */
     while (models_item_->childCount() > 0) {
         delete models_item_->takeChild(0);
     }
@@ -104,6 +116,9 @@ void ProjectPanel::ClearImportedFiles() {
     models_item_->setExpanded(true);
 }
 
+/**
+ * @brief Скрывает модели, имя которых не соответствует строке поиска.
+ */
 void ProjectPanel::FilterTree(const QString& text) {
     if (!models_item_) {
         return;
@@ -111,17 +126,14 @@ void ProjectPanel::FilterTree(const QString& text) {
 
     const QString filter = text.trimmed();
 
-    for (int i = 0; i < models_item_->childCount(); ++i) {
-        QTreeWidgetItem* item = models_item_->child(i);
+    for (int index = 0; index < models_item_->childCount(); ++index) {
+        QTreeWidgetItem* item = models_item_->child(index);
 
         if (!item) {
             continue;
         }
 
-        const bool visible =
-            filter.isEmpty() ||
-            item->text(0).contains(filter, Qt::CaseInsensitive);
-
+        const bool visible = filter.isEmpty() || item->text(0).contains(filter, Qt::CaseInsensitive);
         item->setHidden(!visible);
     }
 }
